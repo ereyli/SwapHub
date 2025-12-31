@@ -1149,7 +1149,9 @@ export default function SwapInterface() {
       
       setPriceImpact(calculatedImpact.toFixed(2));
       
-      setAmountOut(formatNumber(parseFloat(formatted)));
+      // Store the full precision value in amountOut for accurate calculations
+      // formatNumber is only for display, not for storage
+      setAmountOut(formatted);
       setIsLoadingQuote(false);
     };
 
@@ -1850,7 +1852,7 @@ export default function SwapInterface() {
             ) : null}
             <input
               type="text"
-              value={isLoadingQuote ? '' : amountOut}
+              value={isLoadingQuote ? '' : (amountOut && parseFloat(amountOut) > 0 ? formatNumber(parseFloat(amountOut)) : amountOut)}
               readOnly
               placeholder="0"
               style={{
