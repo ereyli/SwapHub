@@ -1351,12 +1351,12 @@ export default function SwapInterface() {
       const minAmountOut = (amountOutWei * slippageMultiplier) / BigInt(10000);
       
       // Ensure minimum output is reasonable
-      // For very small amounts, minAmountOut might be 0 due to rounding, which causes transaction failures
-      // Set a minimum threshold: at least 0.1% less than amountOutWei, or 1 unit minimum
-      const minThreshold = amountOutWei / BigInt(1000); // 0.1% of output
-      const minUnit = BigInt(1); // At least 1 wei/unit
-      const absoluteMin = minThreshold > minUnit ? minThreshold : minUnit;
-      const finalMinAmountOut = minAmountOut > absoluteMin ? minAmountOut : absoluteMin;
+      // minAmountOut should never be less than the slippage-adjusted amount
+      // If minAmountOut is somehow less than slippage tolerance allows, use minAmountOut directly
+      // (This should not happen with correct slippage calculation, but acts as a safety check)
+      // For very small amounts, ensure at least 1 wei minimum
+      const minUnit = BigInt(1);
+      const finalMinAmountOut = minAmountOut > minUnit ? minAmountOut : minUnit;
       
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200); // 20 minutes
 
