@@ -1341,8 +1341,18 @@ export default function SwapInterface() {
       }
       
       // Apply slippage to get minAmountOut
-      const slippageMultiplier = (100 - slippage) / 100;
-      const minAmountOut = BigInt(Math.floor(Number(amountOutWei) * slippageMultiplier));
+      // Use BigInt arithmetic to avoid precision loss for small amounts
+      // slippage is in percentage (e.g., 0.5 means 0.5%)
+      // multiplier = (10000 - slippage * 100) / 10000 (to avoid floating point issues)
+      const slippageBps = BigInt(Math.round(slippage * 100)); // Convert to basis points (0.5% = 50 bps)
+      const slippageMultiplier = BigInt(10000) - slippageBps; // e.g., 10000 - 50 = 9950
+      const minAmountOut = (amountOutWei * slippageMultiplier) / BigInt(10000);
+      
+      // Ensure minimum output is at least 1 unit in token's smallest denomination
+      // This prevents minAmountOut from being 0 for very small swaps
+      const minUnit = BigInt(10 ** Math.max(0, tokenOut.decimals - 6)); // At least 0.000001 tokens (or 1 wei for 18 decimals)
+      const finalMinAmountOut = minAmountOut > minUnit ? minAmountOut : (amountOutWei > minUnit ? minUnit : minAmountOut);
+      
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200); // 20 minutes
 
       // Native ETH uses address(0) in our aggregator
@@ -1360,7 +1370,7 @@ export default function SwapInterface() {
       console.log('   Token In:', tokenIn.symbol, inputIsNativeETH ? '(Native ETH → 0x0)' : `→ ${tokenInAddr}`);
       console.log('   Token Out:', tokenOut.symbol, outputIsNativeETH ? '(Native ETH → 0x0)' : `→ ${tokenOutAddr}`);
       console.log('   Amount In (wei):', amountInWei.toString());
-      console.log('   Min Amount Out (wei):', minAmountOut.toString());
+      console.log('   Min Amount Out (wei):', finalMinAmountOut.toString());
       console.log('   Slippage:', slippage, '%');
       console.log('   Protocol Fee:', protocolFeeBps ? `${Number(protocolFeeBps) / 100}%` : 'Loading...');
       console.log('   Input is Native ETH:', inputIsNativeETH);
@@ -1386,7 +1396,7 @@ export default function SwapInterface() {
             tokenInAddr,    // tokenIn (address(0) for ETH)
             tokenOutAddr,   // tokenOut (address(0) for ETH)
             amountInWei,    // amountIn
-            minAmountOut,   // amountOutMinimum
+            finalMinAmountOut,   // amountOutMinimum
             deadline        // deadline
           ],
           chainId: base.id,
@@ -1404,7 +1414,7 @@ export default function SwapInterface() {
             tokenOutAddr,     // tokenOut (address(0) for ETH)
             selectedFeeTier,  // poolFee
             amountInWei,      // amountIn
-            minAmountOut,     // amountOutMinimum
+            finalMinAmountOut,     // amountOutMinimum
             deadline          // deadline (20 minutes)
           ],
           chainId: base.id,
