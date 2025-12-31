@@ -49,13 +49,12 @@ function calculateUsdValue(
     }
     
     // If we can calculate swap USD value, derive current token's USD value
-    // Assuming swap maintains similar USD value on both sides
-    if (swapUsdValue > 0 && swapAmountNum > 0) {
-      // Calculate price per unit of current token: swapUsdValue / swapAmountNum
-      const pricePerToken = swapUsdValue / swapAmountNum;
-      // Calculate USD value: amountNum * pricePerToken
-      const usdValue = amountNum * pricePerToken;
-      return `$${formatNumber(usdValue, 2)}`;
+    // The swap ratio tells us: amountNum of token = swapUsdValue in USD
+    if (swapUsdValue > 0 && amountNum > 0) {
+      // Simply use the swap USD value directly
+      // Example: 28000 SKITTEN = 0.0086 ETH = $25.37
+      // So 28000 SKITTEN is worth $25.37
+      return `$${formatNumber(swapUsdValue, 2)}`;
     }
   }
   
