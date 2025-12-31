@@ -1121,7 +1121,7 @@ export default function SwapInterface() {
       const formatted = formatUnits(userReceivesWei, tokenOut.decimals);
       const feeFormatted = formatUnits(feeAmountWei, tokenOut.decimals);
       console.log('💵 Raw output:', formatUnits(bestQuote, tokenOut.decimals), tokenOut.symbol);
-      console.log('💰 Protocol fee:', feeFormatted, tokenOut.symbol, `(${feeBps / 100}%)`);
+      console.log('💰 Protocol fee:', feeFormatted, tokenOut.symbol, `(${feeBps / 100}% = ${feeBps} bps)`);
       console.log('✨ User receives:', formatted, tokenOut.symbol, `via ${bestProtocol.toUpperCase()}`);
       
       // Calculate price impact
