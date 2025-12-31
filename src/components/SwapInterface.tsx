@@ -1370,6 +1370,12 @@ export default function SwapInterface() {
       const slippageMultiplier = BigInt(10000) - slippageBps; // e.g., 10000 - 50 = 9950
       const minAmountOut = (amountOutWei * slippageMultiplier) / BigInt(10000);
       
+      console.log('🔢 Min Amount Out Calculation:');
+      console.log('   amountOutWei:', amountOutWei.toString());
+      console.log('   slippageBps:', slippageBps.toString());
+      console.log('   slippageMultiplier:', slippageMultiplier.toString());
+      console.log('   minAmountOut (before check):', minAmountOut.toString());
+      
       // Ensure minimum output is reasonable
       // minAmountOut should never be less than the slippage-adjusted amount
       // If minAmountOut is somehow less than slippage tolerance allows, use minAmountOut directly
@@ -1377,6 +1383,9 @@ export default function SwapInterface() {
       // For very small amounts, ensure at least 1 wei minimum
       const minUnit = BigInt(1);
       const finalMinAmountOut = minAmountOut > minUnit ? minAmountOut : minUnit;
+      
+      console.log('   finalMinAmountOut:', finalMinAmountOut.toString());
+      console.log('   finalMinAmountOut (formatted):', formatUnits(finalMinAmountOut, tokenOut.decimals));
       
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200); // 20 minutes
 
