@@ -1725,6 +1725,24 @@ export default function SwapInterface() {
             <img src={swaphubLogo} alt="SwapHub" style={getStyle(styles.logoImage, mobileOverrides.logoImage)} />
             <span style={getStyle(styles.logoText, mobileOverrides.logoText)}>SwapHub</span>
           </div>
+          {!isMobile && (
+            <nav style={getStyle(styles.nav, mobileOverrides.nav)}>
+              <a href="#" style={getStyle(styles.navLinkActive, mobileOverrides.navLinkActive)}>Swap</a>
+              <button 
+                onClick={() => setShowStatistics(true)}
+                style={getStyle(styles.navLink, mobileOverrides.navLink)}
+              >
+                Statistics
+              </button>
+            </nav>
+          )}
+          {isMobile && (
+            <div style={getStyle(styles.headerRight, mobileOverrides.headerRight)}>
+              <ConnectButton />
+            </div>
+          )}
+        </div>
+        {isMobile && (
           <nav style={getStyle(styles.nav, mobileOverrides.nav)}>
             <a href="#" style={getStyle(styles.navLinkActive, mobileOverrides.navLinkActive)}>Swap</a>
             <button 
@@ -1734,9 +1752,9 @@ export default function SwapInterface() {
               Statistics
             </button>
           </nav>
-        </div>
-        <div style={getStyle(styles.headerRight, mobileOverrides.headerRight)}>
-          {!isMobile && (
+        )}
+        {!isMobile && (
+          <div style={getStyle(styles.headerRight, mobileOverrides.headerRight)}>
             <div style={getStyle(styles.searchBar, mobileOverrides.searchBar)}>
               <span style={styles.searchIcon}>🔍</span>
               <input 
@@ -1745,9 +1763,9 @@ export default function SwapInterface() {
                 style={getStyle(styles.searchInput, mobileOverrides.searchInput)}
               />
             </div>
-          )}
-          <ConnectButton />
-        </div>
+            <ConnectButton />
+          </div>
+        )}
       </header>
 
       {/* Main Content */}
