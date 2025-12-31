@@ -1123,10 +1123,31 @@ export default function SwapInterface() {
       console.log('💰 Protocol fee:', feeFormatted, tokenOut.symbol, `(${feeBps / 100}% = ${feeBps} bps)`);
       console.log('✨ User receives:', formatted, tokenOut.symbol, `via ${bestProtocol.toUpperCase()}`);
       
-      // Calculate price impact
-      const inputValue = parseFloat(amountIn);
-      const estimatedImpact = inputValue < 0.1 ? '0.01' : (inputValue * 0.5).toFixed(2);
-      setPriceImpact(estimatedImpact);
+      // Calculate price impact based on USD value difference
+      // Price impact = (Expected USD - Actual USD) / Expected USD * 100
+      const inputUsdStr = calculateUsdValue(amountIn, tokenIn, formatted, tokenOut);
+      const outputUsdStr = calculateUsdValue(formatted, tokenOut, amountIn, tokenIn);
+      
+      // Extract numeric values from USD strings (e.g., "$25.37" -> 25.37)
+      const inputUsd = inputUsdStr && inputUsdStr !== '-' ? parseFloat(inputUsdStr.replace('$', '').replace(',', '')) : 0;
+      const outputUsd = outputUsdStr && outputUsdStr !== '-' ? parseFloat(outputUsdStr.replace('$', '').replace(',', '')) : 0;
+      
+      let calculatedImpact = 0;
+      if (inputUsd > 0 && outputUsd > 0) {
+        // Price impact = (input USD - output USD) / input USD * 100
+        calculatedImpact = Math.abs((inputUsd - outputUsd) / inputUsd * 100);
+        
+        // For very small differences (< 0.01%), show 0.01% to indicate minimal impact
+        if (calculatedImpact < 0.01) {
+          calculatedImpact = 0.01;
+        }
+      } else {
+        // If we can't calculate USD values, estimate based on protocol
+        // V3 typically has lower price impact for normal trades
+        calculatedImpact = bestProtocol === 'v3' ? 0.1 : 0.5;
+      }
+      
+      setPriceImpact(calculatedImpact.toFixed(2));
       
       setAmountOut(formatNumber(parseFloat(formatted)));
       setIsLoadingQuote(false);
