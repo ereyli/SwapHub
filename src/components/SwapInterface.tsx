@@ -368,7 +368,7 @@ function TokenListItem({ token, onClick, isDisabled }: TokenListItemProps) {
     
     // For ETH-based tokens
     if (token.symbol === 'ETH' || token.symbol === 'WETH' || token.symbol === 'cbETH') {
-      return formatNumber(balanceFormatted * ETH_PRICE_USD, 2);
+      return formatNumber(balanceFormatted * cachedEthPrice, 2);
     }
     // For stablecoins
     if (token.symbol === 'USDC' || token.symbol === 'USDbC' || token.symbol === 'DAI') {
