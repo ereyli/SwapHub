@@ -1192,9 +1192,12 @@ export default function SwapInterface() {
 
   // Helper function to convert scientific notation to decimal string
   const parseScientificNotation = (value: string, decimals: number = 18): string => {
-    // If it's already a normal number, return as is
+    // If it's already a normal number, limit to token decimals
     if (!value.includes('e') && !value.includes('E')) {
-      return value;
+      const num = parseFloat(value);
+      if (isNaN(num)) return value;
+      // Limit to token's decimal precision to avoid parseUnits errors
+      return num.toFixed(decimals);
     }
     
     try {
@@ -1204,10 +1207,10 @@ export default function SwapInterface() {
         return '0';
       }
       
-      // Convert to fixed decimal string with enough precision
-      // For very small numbers, use more precision (at least 20 decimals)
-      const precision = Math.max(decimals, 20);
-      return num.toFixed(precision);
+      // Convert to fixed decimal string with token's decimal precision
+      // CRITICAL: parseUnits will fail if decimals exceed token decimals
+      // USDC has 6 decimals, so "1.19" should become "1.190000" not "1.19000000000000000000"
+      return num.toFixed(decimals);
     } catch (e) {
       console.warn('Failed to parse scientific notation:', value, e);
       return value;
