@@ -8,8 +8,47 @@ import { Token } from '@uniswap/sdk-core';
 import StatsPanel from './StatsPanel';
 import swaphubLogo from '../assets/swaphub-logo.png';
 
-// ETH price for USD calculations (you can fetch this from an API)
-const ETH_PRICE_USD = 2950;
+// ETH price state - will be fetched from CoinGecko API
+let cachedEthPrice = 2950; // Default fallback price
+let lastFetchTime = 0;
+const PRICE_CACHE_DURATION = 60000; // Cache for 1 minute
+
+// Fetch ETH price from CoinGecko API
+async function fetchEthPrice(): Promise<number> {
+  const now = Date.now();
+  
+  // Return cached price if still fresh
+  if (now - lastFetchTime < PRICE_CACHE_DURATION) {
+    return cachedEthPrice;
+  }
+  
+  try {
+    const response = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd',
+      {
+        headers: {
+          'Accept': 'application/json'
+        }
+      }
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      const price = data?.ethereum?.usd;
+      
+      if (price && typeof price === 'number' && price > 0) {
+        cachedEthPrice = price;
+        lastFetchTime = now;
+        console.log('✅ ETH price updated:', `$${price.toFixed(2)}`);
+        return price;
+      }
+    }
+  } catch (error) {
+    console.warn('⚠️ Failed to fetch ETH price from CoinGecko, using cached price:', cachedEthPrice);
+  }
+  
+  return cachedEthPrice;
+}
 
 // Helper function to calculate USD value for a token amount
 // If swapAmount is provided, use it to calculate USD value based on swap ratio
@@ -26,7 +65,7 @@ function calculateUsdValue(
   
   // ETH/WETH/cbETH: Use ETH price
   if (token.symbol === 'ETH' || token.symbol === 'WETH' || token.symbol === 'cbETH') {
-    const usdValue = amountNum * ETH_PRICE_USD;
+    const usdValue = amountNum * cachedEthPrice;
     return `$${formatNumber(usdValue, 2)}`;
   }
   
@@ -43,7 +82,7 @@ function calculateUsdValue(
     // Calculate USD value of swap token (the other side of the swap)
     let swapUsdValue = 0;
     if (swapToken.symbol === 'ETH' || swapToken.symbol === 'WETH' || swapToken.symbol === 'cbETH') {
-      swapUsdValue = swapAmountNum * ETH_PRICE_USD;
+      swapUsdValue = swapAmountNum * cachedEthPrice;
     } else if (swapToken.symbol === 'USDC' || swapToken.symbol === 'USDT' || swapToken.symbol === 'DAI') {
       swapUsdValue = swapAmountNum;
     }
@@ -225,7 +264,7 @@ function CustomTokenItemWithRemove({
   const getUsdValue = () => {
     if (!balance || balanceFormatted === 0) return null;
     if (token.symbol === 'ETH' || token.symbol === 'WETH' || token.symbol === 'cbETH') {
-      return formatNumber(balanceFormatted * ETH_PRICE_USD, 2);
+      return formatNumber(balanceFormatted * cachedEthPrice, 2);
     }
     if (token.symbol === 'USDC' || token.symbol === 'USDbC' || token.symbol === 'DAI') {
       return formatNumber(balanceFormatted, 2);
