@@ -1610,7 +1610,15 @@ export default function SwapInterface() {
     nav: { gap: '4px' },
     navLink: { padding: '6px 12px', fontSize: '14px' },
     navLinkActive: { padding: '6px 12px', fontSize: '14px' },
-    headerRight: { gap: '8px', width: '100%', justifyContent: 'space-between', marginTop: '8px' },
+    headerRight: { 
+      position: 'absolute' as const,
+      top: '12px',
+      right: '12px',
+      gap: '8px',
+      marginTop: 0,
+      width: 'auto',
+      justifyContent: 'flex-end'
+    },
     searchBar: { padding: '8px 12px', flex: 1, maxWidth: 'calc(100% - 120px)' },
     searchInput: { width: '100%', fontSize: '12px' },
     mainContent: { padding: '12px' },
