@@ -673,6 +673,17 @@ export default function SwapInterface() {
   const { isLoading: isConfirming, isSuccess, error: txError } = useWaitForTransactionReceipt({ hash });
   const publicClient = usePublicClient();
 
+  // Mobile responsive hook
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   const [tokenIn, setTokenIn] = useState<AppToken>(DEFAULT_TOKENS.ETH);
   const [tokenOut, setTokenOut] = useState<AppToken>(DEFAULT_TOKENS.USDC);
   const [amountIn, setAmountIn] = useState('');
@@ -1574,51 +1585,89 @@ export default function SwapInterface() {
     }
   }, [errorMessage]);
 
+  // Mobile responsive styles helper
+  const getStyle = (desktopStyle: React.CSSProperties, mobileStyle?: React.CSSProperties) => {
+    return isMobile && mobileStyle ? { ...desktopStyle, ...mobileStyle } : desktopStyle;
+  };
+
+  // Mobile style overrides
+  const mobileOverrides = isMobile ? {
+    header: { padding: '8px 12px', flexWrap: 'wrap' as const },
+    headerLeft: { gap: '12px', width: '100%' },
+    logo: { gap: '6px' },
+    logoImage: { width: '40px', height: '40px' },
+    logoText: { fontSize: '18px' },
+    nav: { gap: '4px' },
+    navLink: { padding: '6px 12px', fontSize: '14px' },
+    navLinkActive: { padding: '6px 12px', fontSize: '14px' },
+    headerRight: { gap: '8px', width: '100%', justifyContent: 'space-between', marginTop: '8px' },
+    searchBar: { padding: '8px 12px', flex: 1, maxWidth: 'calc(100% - 120px)' },
+    searchInput: { width: '100%', fontSize: '12px' },
+    mainContent: { padding: '12px' },
+    card: { padding: '8px', borderRadius: '16px' },
+    tokenSection: { padding: '12px' },
+    tokenLabel: { fontSize: '12px' },
+    amountInput: { fontSize: '28px' },
+    tokenButton: { padding: '6px 10px', fontSize: '14px' },
+    tokenButtonLogo: { width: '20px', height: '20px' },
+    usdValue: { fontSize: '12px' },
+    balanceText: { fontSize: '12px' },
+    percentageButtons: { gap: '4px', marginBottom: '6px' },
+    percentButton: { padding: '3px 8px', fontSize: '10px' },
+    swapButton: { padding: '14px', fontSize: '16px' },
+    infoBox: { padding: '10px' },
+    infoRow: { fontSize: '12px', marginBottom: '6px' },
+    slippageModal: { width: '95%', padding: '20px', maxWidth: 'none' },
+    statisticsModal: { width: '95%', padding: '16px', minWidth: 'auto' }
+  } : {};
+
   return (
     <div style={styles.pageContainer}>
       {/* Header */}
-      <header style={styles.header}>
-        <div style={styles.headerLeft}>
-          <div style={styles.logo}>
-            <img src={swaphubLogo} alt="SwapHub" style={styles.logoImage} />
-            <span style={styles.logoText}>SwapHub</span>
+      <header style={getStyle(styles.header, mobileOverrides.header)}>
+        <div style={getStyle(styles.headerLeft, mobileOverrides.headerLeft)}>
+          <div style={getStyle(styles.logo, mobileOverrides.logo)}>
+            <img src={swaphubLogo} alt="SwapHub" style={getStyle(styles.logoImage, mobileOverrides.logoImage)} />
+            <span style={getStyle(styles.logoText, mobileOverrides.logoText)}>SwapHub</span>
           </div>
-          <nav style={styles.nav}>
-            <a href="#" style={styles.navLinkActive}>Swap</a>
+          <nav style={getStyle(styles.nav, mobileOverrides.nav)}>
+            <a href="#" style={getStyle(styles.navLinkActive, mobileOverrides.navLinkActive)}>Swap</a>
             <button 
               onClick={() => setShowStatistics(true)}
-              style={styles.navLink}
+              style={getStyle(styles.navLink, mobileOverrides.navLink)}
             >
               Statistics
             </button>
           </nav>
         </div>
-        <div style={styles.headerRight}>
-          <div style={styles.searchBar}>
-            <span style={styles.searchIcon}>🔍</span>
-            <input 
-              type="text" 
-              placeholder="Search tokens" 
-              style={styles.searchInput}
-            />
-          </div>
+        <div style={getStyle(styles.headerRight, mobileOverrides.headerRight)}>
+          {!isMobile && (
+            <div style={getStyle(styles.searchBar, mobileOverrides.searchBar)}>
+              <span style={styles.searchIcon}>🔍</span>
+              <input 
+                type="text" 
+                placeholder="Search tokens" 
+                style={getStyle(styles.searchInput, mobileOverrides.searchInput)}
+              />
+            </div>
+          )}
           <ConnectButton />
         </div>
       </header>
 
       {/* Main Content */}
-      <div style={styles.mainContent}>
-        <div style={styles.card}>
+      <div style={getStyle(styles.mainContent, mobileOverrides.mainContent)}>
+        <div style={getStyle(styles.card, mobileOverrides.card)}>
 
         {/* Token In */}
-        <div style={styles.tokenSection}>
+        <div style={getStyle(styles.tokenSection, mobileOverrides.tokenSection)}>
           <div style={styles.sectionHeader}>
-            <div style={styles.tokenLabel}>Sell</div>
+            <div style={getStyle(styles.tokenLabel, mobileOverrides.tokenLabel)}>Sell</div>
             <button 
               onClick={() => setShowTokenSelect('in')}
-              style={styles.tokenButton}
+              style={getStyle(styles.tokenButton, mobileOverrides.tokenButton)}
             >
-              {tokenIn.logoURI && <img src={tokenIn.logoURI} alt={tokenIn.symbol} style={styles.tokenButtonLogo} />}
+              {tokenIn.logoURI && <img src={tokenIn.logoURI} alt={tokenIn.symbol} style={getStyle(styles.tokenButtonLogo, mobileOverrides.tokenButtonLogo)} />}
               {tokenIn.symbol}
               <span style={styles.chevron}>▼</span>
             </button>
@@ -1628,10 +1677,10 @@ export default function SwapInterface() {
               value={amountIn}
               onChange={(e) => setAmountIn(e.target.value)}
             placeholder="0"
-            style={styles.amountInput}
+            style={getStyle(styles.amountInput, mobileOverrides.amountInput)}
           />
           {/* Percentage buttons */}
-          <div style={styles.percentageButtons}>
+          <div style={getStyle(styles.percentageButtons, mobileOverrides.percentageButtons)}>
             {[10, 25, 50, 100].map((percent) => (
               <button
                 key={percent}
@@ -1663,17 +1712,17 @@ export default function SwapInterface() {
                     setAmountIn(newAmount);
                   }
                 }}
-                style={styles.percentButton}
+                style={getStyle(styles.percentButton, mobileOverrides.percentButton)}
               >
                 {percent === 100 ? 'Max' : `${percent}%`}
               </button>
             ))}
           </div>
           <div style={styles.bottomRow}>
-            <div style={styles.usdValue}>
+            <div style={getStyle(styles.usdValue, mobileOverrides.usdValue)}>
               {calculateUsdValue(amountIn, tokenIn, amountOut, tokenOut)}
             </div>
-            <div style={styles.balanceText}>
+            <div style={getStyle(styles.balanceText, mobileOverrides.balanceText)}>
               {displayBalance 
                 ? `${formatNumber(parseFloat(formatUnits(displayBalance.value, displayBalance.decimals)))} ${tokenIn.symbol}`
                 : `- ${tokenIn.symbol}`
@@ -1690,14 +1739,14 @@ export default function SwapInterface() {
         </div>
 
         {/* Token Out */}
-        <div style={styles.tokenSection}>
+        <div style={getStyle(styles.tokenSection, mobileOverrides.tokenSection)}>
           <div style={styles.sectionHeader}>
-            <div style={styles.tokenLabel}>Buy</div>
+            <div style={getStyle(styles.tokenLabel, mobileOverrides.tokenLabel)}>Buy</div>
             <button 
               onClick={() => setShowTokenSelect('out')}
-              style={styles.tokenButton}
+              style={getStyle(styles.tokenButton, mobileOverrides.tokenButton)}
             >
-              {tokenOut.logoURI && <img src={tokenOut.logoURI} alt={tokenOut.symbol} style={styles.tokenButtonLogo} />}
+              {tokenOut.logoURI && <img src={tokenOut.logoURI} alt={tokenOut.symbol} style={getStyle(styles.tokenButtonLogo, mobileOverrides.tokenButtonLogo)} />}
               {tokenOut.symbol}
               <span style={styles.chevron}>▼</span>
             </button>
@@ -1712,16 +1761,16 @@ export default function SwapInterface() {
               readOnly
               placeholder="0"
               style={{
-                ...styles.amountInput,
-                paddingLeft: isLoadingQuote ? '40px' : '0'
+                ...getStyle(styles.amountInput, mobileOverrides.amountInput),
+                paddingLeft: isLoadingQuote ? (isMobile ? '30px' : '40px') : '0'
               }}
             />
           </div>
           <div style={styles.bottomRow}>
-            <div style={styles.usdValue}>
+            <div style={getStyle(styles.usdValue, mobileOverrides.usdValue)}>
               {calculateUsdValue(amountOut, tokenOut, amountIn, tokenIn)}
             </div>
-            <div style={styles.balanceText}>
+            <div style={getStyle(styles.balanceText, mobileOverrides.balanceText)}>
               {tokenOutBalance 
                 ? `${formatNumber(parseFloat(formatUnits(tokenOutBalance.value, tokenOutBalance.decimals)))} ${tokenOut.symbol}`
                 : `- ${tokenOut.symbol}`
@@ -1739,7 +1788,7 @@ export default function SwapInterface() {
           }
           disabled={!amountIn || parseFloat(amountOut) === 0 || isPending || isConfirming || noLiquidityError || transactionStep === 'success'}
           style={{
-            ...styles.swapButton,
+            ...getStyle(styles.swapButton, mobileOverrides.swapButton),
             opacity: (!amountIn || parseFloat(amountOut) === 0 || isPending || isConfirming || noLiquidityError) ? 0.5 : 1,
             cursor: (!amountIn || parseFloat(amountOut) === 0 || isPending || isConfirming || noLiquidityError) ? 'not-allowed' : 'pointer'
           }}
@@ -1868,11 +1917,11 @@ export default function SwapInterface() {
         {/* Info */}
         {amountOut !== '0' && !isPending && !isConfirming && (
           <div style={styles.infoBox}>
-            <div style={styles.infoRow}>
+            <div style={getStyle(styles.infoRow, mobileOverrides.infoRow)}>
               <span>Minimum received:</span>
               <span>{formatNumber(parseFloat(amountOut) * (1 - slippage / 100))} {tokenOut.symbol}</span>
             </div>
-            <div style={styles.infoRow}>
+            <div style={getStyle(styles.infoRow, mobileOverrides.infoRow)}>
               <span>Price Impact:</span>
               <span style={{
                 color: parseFloat(priceImpact) > 5 ? '#ff6b6b' : parseFloat(priceImpact) > 2 ? '#ffa500' : '#4ade80'
@@ -1880,7 +1929,7 @@ export default function SwapInterface() {
                 {priceImpact}%
               </span>
             </div>
-            <div style={styles.infoRow}>
+            <div style={getStyle(styles.infoRow, mobileOverrides.infoRow)}>
               <span>Slippage:</span>
               <button 
                 onClick={() => setShowSlippageSettings(!showSlippageSettings)}
@@ -1890,7 +1939,7 @@ export default function SwapInterface() {
               </button>
             </div>
             {typeof protocolFeeBps === 'bigint' && Number(protocolFeeBps) > 0 && (
-              <div style={styles.infoRow}>
+              <div style={getStyle(styles.infoRow, mobileOverrides.infoRow)}>
                 <span>Protocol Fee:</span>
                 <span style={{ color: '#666' }}>{Number(protocolFeeBps) / 100}%</span>
               </div>
@@ -1905,7 +1954,7 @@ export default function SwapInterface() {
               style={styles.modalOverlay} 
               onClick={() => setShowSlippageSettings(false)}
             />
-            <div style={styles.slippageModal}>
+            <div style={getStyle(styles.slippageModal, mobileOverrides.slippageModal)}>
               <div style={styles.slippageModalHeader}>
                 <span style={styles.slippageModalTitle}>Slippage Settings</span>
                 <button 
