@@ -1111,9 +1111,11 @@ export default function SwapInterface() {
       
       // Apply protocol fee to the output (output-fee model)
       // Fee is deducted from the output amount
+      // Use BigInt arithmetic to avoid precision loss
       const feeBps = protocolFeeBps ? Number(protocolFeeBps) : 0;
-      const feeMultiplier = (10000 - feeBps) / 10000; // e.g., 100 bps = 1% → 0.99
-      const userReceivesWei = BigInt(Math.floor(Number(bestQuote) * feeMultiplier));
+      const feeBpsBigInt = BigInt(feeBps);
+      const feeMultiplier = BigInt(10000) - feeBpsBigInt; // e.g., 10000 - 100 = 9900
+      const userReceivesWei = (bestQuote * feeMultiplier) / BigInt(10000);
       const feeAmountWei = bestQuote - userReceivesWei;
       
       const formatted = formatUnits(userReceivesWei, tokenOut.decimals);
@@ -1348,10 +1350,13 @@ export default function SwapInterface() {
       const slippageMultiplier = BigInt(10000) - slippageBps; // e.g., 10000 - 50 = 9950
       const minAmountOut = (amountOutWei * slippageMultiplier) / BigInt(10000);
       
-      // Ensure minimum output is at least 1 unit in token's smallest denomination
-      // This prevents minAmountOut from being 0 for very small swaps
-      const minUnit = BigInt(10 ** Math.max(0, tokenOut.decimals - 6)); // At least 0.000001 tokens (or 1 wei for 18 decimals)
-      const finalMinAmountOut = minAmountOut > minUnit ? minAmountOut : (amountOutWei > minUnit ? minUnit : minAmountOut);
+      // Ensure minimum output is reasonable
+      // For very small amounts, minAmountOut might be 0 due to rounding, which causes transaction failures
+      // Set a minimum threshold: at least 0.1% less than amountOutWei, or 1 unit minimum
+      const minThreshold = amountOutWei / BigInt(1000); // 0.1% of output
+      const minUnit = BigInt(1); // At least 1 wei/unit
+      const absoluteMin = minThreshold > minUnit ? minThreshold : minUnit;
+      const finalMinAmountOut = minAmountOut > absoluteMin ? minAmountOut : absoluteMin;
       
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200); // 20 minutes
 
