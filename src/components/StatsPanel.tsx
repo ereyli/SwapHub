@@ -75,7 +75,11 @@ function formatNumber(value: number, maxDecimals: number = 4): string {
   return formatted;
 }
 
-export default function StatsPanel() {
+interface StatsPanelProps {
+  isMobile?: boolean;
+}
+
+export default function StatsPanel({ isMobile = false }: StatsPanelProps) {
   const { data: stats, refetch } = useReadContract({
     address: SWAP_AGGREGATOR as `0x${string}`,
     abi: AGGREGATOR_ABI,
@@ -218,14 +222,14 @@ export default function StatsPanel() {
       display: 'flex',
       gap: '10px',
       marginBottom: '16px',
-      flexWrap: 'nowrap' as const
+      flexWrap: (isMobile ? 'wrap' : 'nowrap') as const
     },
     statCard: {
-      flex: '1',
-      minWidth: '0',
+      flex: isMobile ? '1 1 calc(50% - 5px)' : '1',
+      minWidth: isMobile ? 'calc(50% - 5px)' : '0',
       backgroundColor: 'rgba(255, 255, 255, 0.02)',
       borderRadius: '12px',
-      padding: '16px',
+      padding: isMobile ? '12px' : '16px',
       border: '1px solid rgba(255, 255, 255, 0.06)',
       position: 'relative' as const,
       overflow: 'hidden' as const
@@ -239,7 +243,7 @@ export default function StatsPanel() {
       letterSpacing: '0.05em'
     },
     statValue: {
-      fontSize: '24px',
+      fontSize: isMobile ? '20px' : '24px',
       fontWeight: '600',
       color: '#ffffff',
       marginBottom: '6px',

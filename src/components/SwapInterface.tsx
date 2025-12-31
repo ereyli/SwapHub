@@ -1618,7 +1618,48 @@ export default function SwapInterface() {
     infoBox: { padding: '10px' },
     infoRow: { fontSize: '12px', marginBottom: '6px' },
     slippageModal: { width: '95%', padding: '20px', maxWidth: 'none' },
-    statisticsModal: { width: '95%', padding: '16px', minWidth: 'auto' }
+    statisticsModal: { 
+      width: '95%', 
+      padding: '12px', 
+      minWidth: 'auto',
+      maxWidth: '100%',
+      maxHeight: '90vh',
+      overflow: 'auto' as const
+    },
+    modalContent: {
+      width: '95%',
+      maxWidth: '420px',
+      padding: '12px'
+    },
+    tokenLogo: {
+      width: '28px',
+      height: '28px'
+    },
+    tokenSymbol: {
+      fontSize: '14px'
+    },
+    tokenName: {
+      fontSize: '11px',
+      maxWidth: '120px'
+    },
+    tokenOption: {
+      padding: '8px 6px',
+      fontSize: '14px'
+    },
+    tokenBalanceAmount: {
+      fontSize: '12px'
+    },
+    tokenBalanceUsd: {
+      fontSize: '11px'
+    },
+    popularToken: {
+      padding: '5px 8px',
+      fontSize: '12px'
+    },
+    sectionTitle: {
+      fontSize: '11px',
+      padding: '6px 8px 3px'
+    }
   } : {};
 
   return (
@@ -2029,7 +2070,7 @@ export default function SwapInterface() {
               style={styles.modalOverlay} 
               onClick={() => setShowStatistics(false)}
             />
-            <div style={{ ...styles.statisticsModal, position: 'relative' as const }}>
+            <div style={getStyle({ ...styles.statisticsModal, position: 'relative' as const }, mobileOverrides.statisticsModal)}>
               <button 
                 onClick={() => setShowStatistics(false)} 
                 style={{
@@ -2063,7 +2104,7 @@ export default function SwapInterface() {
               >
                 ×
               </button>
-              <StatsPanel />
+              <StatsPanel isMobile={isMobile} />
             </div>
           </>
         )}
@@ -2128,10 +2169,10 @@ export default function SwapInterface() {
                         <button
                           key={symbol}
                           onClick={() => handleTokenSelect(token, showTokenSelect!)}
-                          style={styles.popularToken}
+                          style={getStyle(styles.popularToken, mobileOverrides.popularToken)}
                         >
                           {token.logoURI && (
-                            <img src={token.logoURI} alt={token.symbol} style={styles.tokenLogo} />
+                            <img src={token.logoURI} alt={token.symbol} style={getStyle(styles.tokenLogo, mobileOverrides.tokenLogo)} />
                           )}
                           {token.symbol}
                         </button>
@@ -2247,7 +2288,7 @@ export default function SwapInterface() {
               {/* Custom Tokens Section */}
               {Object.keys(customTokens).length > 0 && !tokenSearchQuery && (
                 <>
-                  <div style={styles.sectionTitle}>Custom tokens</div>
+                  <div style={getStyle(styles.sectionTitle, mobileOverrides.sectionTitle)}>Custom tokens</div>
                   <div style={{ ...styles.tokenList, maxHeight: '400px' }}>
                     {Object.values(customTokens).map((token) => {
                       const isCurrentToken = showTokenSelect === 'in' 
@@ -2285,7 +2326,7 @@ export default function SwapInterface() {
               )}
 
               {/* Your Tokens Header */}
-              <div style={styles.sectionTitle}>Popular tokens</div>
+              <div style={getStyle(styles.sectionTitle, mobileOverrides.sectionTitle)}>Popular tokens</div>
               
               {/* Token List */}
               <div style={styles.tokenList}>
@@ -2680,7 +2721,7 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: '1200px',
     width: '95%',
     maxHeight: '85vh',
-    overflow: 'hidden' as const,
+    overflow: 'auto' as const,
     minWidth: '600px',
     animation: 'slideUp 0.2s ease-out',
     backdropFilter: 'blur(20px)',
@@ -2943,6 +2984,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '20px',
     padding: '16px',
     width: '420px',
+    maxWidth: '95%',
     maxHeight: '85vh',
     display: 'flex',
     flexDirection: 'column',
