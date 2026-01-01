@@ -1197,18 +1197,29 @@ export default function SwapInterface() {
         
         // Try multi-hop route via USDC ONLY if direct route doesn't exist
         // NOTE: Aggregator only supports direct routes, so multi-hop is only for quote comparison
-        // For ETH/USDC swaps, direct route is always best
+        // CRITICAL: For ETH/USDC swaps, NEVER use multi-hop - always use direct route
         const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-        const isStablecoinSwap = (
-          (tokenIn.symbol === 'USDC' || tokenIn.symbol === 'USDT' || tokenIn.symbol === 'DAI') &&
-          (tokenOut.symbol === 'USDC' || tokenOut.symbol === 'USDT' || tokenOut.symbol === 'DAI')
-        ) || (
-          (tokenIn.symbol === 'ETH' || tokenIn.symbol === 'WETH') &&
+        
+        // Check if this is ETH/USDC swap (both directions)
+        const isETHUSDC_V2 = (
+          (tokenIn.symbol === 'ETH' || tokenIn.symbol === 'WETH' || tokenIn.isNative) &&
           (tokenOut.symbol === 'USDC' || tokenOut.symbol === 'USDT')
+        ) || (
+          (tokenIn.symbol === 'USDC' || tokenIn.symbol === 'USDT') &&
+          (tokenOut.symbol === 'ETH' || tokenOut.symbol === 'WETH' || tokenOut.isNative)
         );
         
-        // Only try multi-hop if direct route doesn't exist AND it's not a stablecoin swap
-        if (v2Quote === null && !isStablecoinSwap &&
+        // Check if this is stablecoin-to-stablecoin swap
+        const isStablecoinToStablecoin_V2 = (
+          (tokenIn.symbol === 'USDC' || tokenIn.symbol === 'USDT' || tokenIn.symbol === 'DAI') &&
+          (tokenOut.symbol === 'USDC' || tokenOut.symbol === 'USDT' || tokenOut.symbol === 'DAI')
+        );
+        
+        // NEVER try multi-hop for ETH/USDC or stablecoin swaps
+        // Only try multi-hop if direct route doesn't exist AND it's not ETH/USDC/stablecoin swap
+        if (v2Quote === null && 
+            !isETHUSDC_V2 && 
+            !isStablecoinToStablecoin_V2 &&
             tokenInAddr.toLowerCase() !== USDC_ADDRESS.toLowerCase() && 
             tokenOutAddr.toLowerCase() !== USDC_ADDRESS.toLowerCase()) {
           try {
@@ -1245,30 +1256,34 @@ export default function SwapInterface() {
       
       // Try V3 multi-hop via USDC ONLY if direct route doesn't exist or is very poor
       // NOTE: Aggregator only supports direct routes, so multi-hop is only for quote comparison
-      // If multi-hop is better, we'll still use direct route for swap but show better quote
-      // This helps users see better rates even if aggregator can't execute multi-hop
+      // CRITICAL: For ETH/USDC swaps, NEVER use multi-hop - always use direct route
       const USDC_ADDRESS_V3 = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-      let v3DirectQuote = v3Quote; // Store direct quote separately
       
-      // Only try multi-hop if direct route exists but might be poor
-      // For ETH/USDC swaps, direct route is usually best, so skip multi-hop
+      // Check if this is ETH/USDC swap (both directions)
+      const isETHUSDC = (
+        (tokenIn.symbol === 'ETH' || tokenIn.symbol === 'WETH' || tokenIn.isNative) &&
+        (tokenOut.symbol === 'USDC' || tokenOut.symbol === 'USDT')
+      ) || (
+        (tokenIn.symbol === 'USDC' || tokenIn.symbol === 'USDT') &&
+        (tokenOut.symbol === 'ETH' || tokenOut.symbol === 'WETH' || tokenOut.isNative)
+      );
+      
+      // Check if this is stablecoin-to-stablecoin swap
+      const isStablecoinToStablecoin = (
+        (tokenIn.symbol === 'USDC' || tokenIn.symbol === 'USDT' || tokenIn.symbol === 'DAI') &&
+        (tokenOut.symbol === 'USDC' || tokenOut.symbol === 'USDT' || tokenOut.symbol === 'DAI')
+      );
+      
+      // NEVER try multi-hop for ETH/USDC or stablecoin swaps
+      // These pairs have excellent direct liquidity and multi-hop would cause issues
       if (v3Quote !== null && 
+          !isETHUSDC && 
+          !isStablecoinToStablecoin &&
           tokenInAddr.toLowerCase() !== USDC_ADDRESS_V3.toLowerCase() && 
           tokenOutAddr.toLowerCase() !== USDC_ADDRESS_V3.toLowerCase()) {
         
-        // Check if direct quote is reasonable (at least 80% of expected value for stablecoins)
-        // If direct quote is good, don't bother with multi-hop
-        const isStablecoinSwap = (
-          (tokenIn.symbol === 'USDC' || tokenIn.symbol === 'USDT' || tokenIn.symbol === 'DAI') &&
-          (tokenOut.symbol === 'USDC' || tokenOut.symbol === 'USDT' || tokenOut.symbol === 'DAI')
-        ) || (
-          (tokenIn.symbol === 'ETH' || tokenIn.symbol === 'WETH') &&
-          (tokenOut.symbol === 'USDC' || tokenOut.symbol === 'USDT')
-        );
-        
-        // For stablecoin swaps or ETH/USDC, direct route is usually best
-        // Only try multi-hop for exotic pairs
-        if (!isStablecoinSwap) {
+        // Only try multi-hop for exotic pairs (not ETH/USDC, not stablecoin pairs)
+        if (true) { // Always try for non-ETH/USDC, non-stablecoin pairs
           console.log('🔄 Trying V3 multi-hop via USDC for better rates (exotic pair)...');
           
           // Try a few fee tier combinations (not all to save time)
