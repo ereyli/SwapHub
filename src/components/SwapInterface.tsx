@@ -55,8 +55,9 @@ async function fetchEthPrice(): Promise<number> {
 function calculateUsdValue(
   amount: string, 
   token: AppToken, 
-  swapAmount?: string, 
-  swapToken?: AppToken
+  swapAmount: string | undefined, 
+  swapToken: AppToken | undefined,
+  ethPrice: number
 ): string {
   if (!amount || parseFloat(amount) === 0) return '$0';
   
@@ -65,7 +66,7 @@ function calculateUsdValue(
   
   // ETH/WETH/cbETH: Use ETH price
   if (token.symbol === 'ETH' || token.symbol === 'WETH' || token.symbol === 'cbETH') {
-    const usdValue = amountNum * cachedEthPrice;
+    const usdValue = amountNum * ethPrice;
     return `$${formatNumber(usdValue, 2)}`;
   }
   
@@ -82,7 +83,7 @@ function calculateUsdValue(
     // Calculate USD value of swap token (the other side of the swap)
     let swapUsdValue = 0;
     if (swapToken.symbol === 'ETH' || swapToken.symbol === 'WETH' || swapToken.symbol === 'cbETH') {
-      swapUsdValue = swapAmountNum * cachedEthPrice;
+      swapUsdValue = swapAmountNum * ethPrice;
     } else if (swapToken.symbol === 'USDC' || swapToken.symbol === 'USDT' || swapToken.symbol === 'DAI') {
       swapUsdValue = swapAmountNum;
     }
@@ -264,6 +265,8 @@ function CustomTokenItemWithRemove({
   const getUsdValue = () => {
     if (!balance || balanceFormatted === 0) return null;
     if (token.symbol === 'ETH' || token.symbol === 'WETH' || token.symbol === 'cbETH') {
+      // Note: We can't access ethPriceUsd state here as this is outside the main component
+      // We'll need to pass it as a prop or use the cached value
       return formatNumber(balanceFormatted * cachedEthPrice, 2);
     }
     if (token.symbol === 'USDC' || token.symbol === 'USDbC' || token.symbol === 'DAI') {
@@ -367,6 +370,8 @@ function TokenListItem({ token, onClick, isDisabled }: TokenListItemProps) {
     if (!balance || balanceFormatted === 0) return null;
     
     // For ETH-based tokens
+    // Note: We can't access ethPriceUsd state here as this is outside the main component
+    // We'll need to pass it as a prop or use the cached value
     if (token.symbol === 'ETH' || token.symbol === 'WETH' || token.symbol === 'cbETH') {
       return formatNumber(balanceFormatted * cachedEthPrice, 2);
     }
@@ -720,6 +725,39 @@ export default function SwapInterface() {
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Fetch ETH price on mount and periodically update
+  useEffect(() => {
+    const updateEthPrice = async () => {
+      const price = await fetchEthPrice();
+      setEthPriceUsd(price);
+      console.log('🔄 ETH price updated in component:', `$${price.toFixed(2)}`);
+    };
+    
+    // Fetch immediately on mount
+    updateEthPrice();
+    
+    // Update every 2 minutes
+    const interval = setInterval(updateEthPrice, 120000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch ETH price on mount and periodically update
+  useEffect(() => {
+    const updateEthPrice = async () => {
+      const price = await fetchEthPrice();
+      setEthPriceUsd(price);
+    };
+    
+    // Fetch immediately on mount
+    updateEthPrice();
+    
+    // Update every 2 minutes
+    const interval = setInterval(updateEthPrice, 120000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   const [tokenIn, setTokenIn] = useState<AppToken>(DEFAULT_TOKENS.ETH);
@@ -1164,8 +1202,8 @@ export default function SwapInterface() {
       
       // Calculate price impact based on USD value difference
       // Price impact = (Expected USD - Actual USD) / Expected USD * 100
-      const inputUsdStr = calculateUsdValue(amountIn, tokenIn, formatted, tokenOut);
-      const outputUsdStr = calculateUsdValue(formatted, tokenOut, amountIn, tokenIn);
+      const inputUsdStr = calculateUsdValue(amountIn, tokenIn, formatted, tokenOut, ethPriceUsd);
+      const outputUsdStr = calculateUsdValue(formatted, tokenOut, amountIn, tokenIn, ethPriceUsd);
       
       // Extract numeric values from USD strings (e.g., "$25.37" -> 25.37)
       const inputUsd = inputUsdStr && inputUsdStr !== '-' ? parseFloat(inputUsdStr.replace('$', '').replace(',', '')) : 0;
@@ -1872,7 +1910,7 @@ export default function SwapInterface() {
           </div>
           <div style={styles.bottomRow}>
             <div style={getStyle(styles.usdValue, mobileOverrides.usdValue)}>
-              {calculateUsdValue(amountIn, tokenIn, amountOut, tokenOut)}
+              {calculateUsdValue(amountIn, tokenIn, amountOut, tokenOut, ethPriceUsd)}
             </div>
             <div style={getStyle(styles.balanceText, mobileOverrides.balanceText)}>
               {displayBalance 
@@ -1920,7 +1958,7 @@ export default function SwapInterface() {
           </div>
           <div style={styles.bottomRow}>
             <div style={getStyle(styles.usdValue, mobileOverrides.usdValue)}>
-              {calculateUsdValue(amountOut, tokenOut, amountIn, tokenIn)}
+              {calculateUsdValue(amountOut, tokenOut, amountIn, tokenIn, ethPriceUsd)}
             </div>
             <div style={getStyle(styles.balanceText, mobileOverrides.balanceText)}>
               {tokenOutBalance 
