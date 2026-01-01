@@ -1148,11 +1148,60 @@ export default function SwapInterface() {
       // Wait for all V3 tier checks to complete
       const v3Results = await Promise.all(v3Promises);
       
+      // Check if this is ETH/USDC swap - prefer 0.05% fee tier for better liquidity
+      const isETHUSDC_Fee = (
+        (tokenIn.symbol === 'ETH' || tokenIn.symbol === 'WETH' || tokenIn.isNative) &&
+        (tokenOut.symbol === 'USDC' || tokenOut.symbol === 'USDT')
+      ) || (
+        (tokenIn.symbol === 'USDC' || tokenIn.symbol === 'USDT') &&
+        (tokenOut.symbol === 'ETH' || tokenOut.symbol === 'WETH' || tokenOut.isNative)
+      );
+      
       // Find the best V3 quote across all tiers
+      // For ETH/USDC, prefer 0.05% (500) if available and quote is reasonable
+      let bestQuoteValue: bigint | null = null;
+      let preferredFeeTier: number | null = null;
+      let bestQuoteFromAll: bigint | null = null;
+      let bestFeeFromAll: number | null = null;
+      
       for (const result of v3Results) {
-        if (result && (v3Quote === null || result.quote > v3Quote)) {
-          v3Quote = result.quote;
-          bestV3Fee = result.feeTier;
+        if (result) {
+          // Track best quote overall
+          if (bestQuoteFromAll === null || result.quote > bestQuoteFromAll) {
+            bestQuoteFromAll = result.quote;
+            bestFeeFromAll = result.feeTier;
+          }
+          
+          // For ETH/USDC, prefer 0.05% (500) fee tier if available
+          if (isETHUSDC_Fee && result.feeTier === 500) {
+            preferredFeeTier = 500;
+            bestQuoteValue = result.quote;
+            console.log(`⭐ Preferred fee tier for ETH/USDC: 0.05% (500) - ${formatUnits(result.quote, tokenOut.decimals)} ${tokenOut.symbol}`);
+          }
+        }
+      }
+      
+      // For ETH/USDC: Use 0.05% if available and quote is within 1% of best
+      // Otherwise use best quote
+      if (isETHUSDC_Fee && preferredFeeTier === 500 && bestQuoteValue && bestQuoteFromAll) {
+        const preferredQuoteNum = Number(bestQuoteValue);
+        const bestQuoteNum = Number(bestQuoteFromAll);
+        const differencePercent = ((bestQuoteNum - preferredQuoteNum) / preferredQuoteNum) * 100;
+        
+        if (differencePercent <= 1.0) { // If 0.05% is within 1% of best, prefer it
+          v3Quote = bestQuoteValue;
+          bestV3Fee = 500;
+          console.log(`🏆 Using preferred 0.05% fee tier for ETH/USDC (${differencePercent.toFixed(2)}% difference from best)`);
+        } else {
+          v3Quote = bestQuoteFromAll;
+          bestV3Fee = bestFeeFromAll!;
+          console.log(`🏆 Best quote is significantly better, using ${bestV3Fee/10000}% fee tier`);
+        }
+      } else {
+        // For other pairs, use best quote
+        if (bestQuoteFromAll !== null && bestFeeFromAll !== null) {
+          v3Quote = bestQuoteFromAll;
+          bestV3Fee = bestFeeFromAll;
         }
       }
       
