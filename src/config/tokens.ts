@@ -18,23 +18,29 @@ export interface AppToken {
 export const TOKEN_ADDRESSES = {
   WETH: '0x4200000000000000000000000000000000000006',
   USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  USDT: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', // Tether USD
   DAI: '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb',
   USDbC: '0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA', // USD Base Coin (bridged)
   cbETH: '0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22', // Coinbase Wrapped Staked ETH
   // WBTC: '0x0555E30da8f98308EdbB23e1bB6c4fE6Cee5b76b', // Invalid address - commented out
   AERO: '0x940181a94A35A4569E4529A3CDfB74e38FD98631', // Aerodrome
   BRETT: '0x532f27101965dd16442E59d40670FaF5eBB142E4', // Brett (Based)
+  DEGEN: '0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed', // Degen (Base native meme token)
+  MOONWELL: '0x628ff693426583D9a7FB391E54366292F509A457', // Moonwell Finance
 };
 
 // SDK Token instances
 const WETH_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.WETH, 18, 'WETH', 'Wrapped Ether');
 const USDC_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.USDC, 6, 'USDC', 'USD Coin');
+const USDT_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.USDT, 6, 'USDT', 'Tether USD');
 const DAI_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.DAI, 18, 'DAI', 'Dai Stablecoin');
 const USDbC_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.USDbC, 6, 'USDbC', 'USD Base Coin');
 const cbETH_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.cbETH, 18, 'cbETH', 'Coinbase Wrapped Staked ETH');
 // const WBTC_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.WBTC, 8, 'WBTC', 'Wrapped BTC'); // Invalid address
 const AERO_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.AERO, 18, 'AERO', 'Aerodrome');
 const BRETT_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.BRETT, 18, 'BRETT', 'Brett');
+const DEGEN_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.DEGEN, 18, 'DEGEN', 'Degen');
+const MOONWELL_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.MOONWELL, 18, 'MOONWELL', 'Moonwell');
 
 // Default token list
 export const DEFAULT_TOKENS: Record<string, AppToken> = {
@@ -64,6 +70,15 @@ export const DEFAULT_TOKENS: Record<string, AppToken> = {
     logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png',
     isNative: false,
     sdkToken: USDC_TOKEN
+  },
+  USDT: {
+    address: TOKEN_ADDRESSES.USDT,
+    symbol: 'USDT',
+    name: 'Tether USD',
+    decimals: 6,
+    logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png',
+    isNative: false,
+    sdkToken: USDT_TOKEN
   },
   DAI: {
     address: TOKEN_ADDRESSES.DAI,
@@ -109,11 +124,29 @@ export const DEFAULT_TOKENS: Record<string, AppToken> = {
     logoURI: 'https://assets.coingecko.com/coins/images/35529/small/1000050750.png',
     isNative: false,
     sdkToken: BRETT_TOKEN
+  },
+  DEGEN: {
+    address: TOKEN_ADDRESSES.DEGEN,
+    symbol: 'DEGEN',
+    name: 'Degen',
+    decimals: 18,
+    logoURI: 'https://assets.coingecko.com/coins/images/34557/small/degen.png',
+    isNative: false,
+    sdkToken: DEGEN_TOKEN
+  },
+  MOONWELL: {
+    address: TOKEN_ADDRESSES.MOONWELL,
+    symbol: 'MOONWELL',
+    name: 'Moonwell',
+    decimals: 18,
+    logoURI: 'https://assets.coingecko.com/coins/images/25512/small/moonwell.png',
+    isNative: false,
+    sdkToken: MOONWELL_TOKEN
   }
 };
 
 // Popular token pairs for quick access
-export const POPULAR_TOKENS = ['ETH', 'USDC', 'DAI', 'cbETH', 'AERO'];
+export const POPULAR_TOKENS = ['ETH', 'USDC', 'USDT', 'DAI', 'cbETH', 'AERO', 'BRETT', 'DEGEN'];
 
 // Fee tiers for Uniswap V3 pools
 export const FEE_TIERS = {

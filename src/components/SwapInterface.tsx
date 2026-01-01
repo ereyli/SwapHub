@@ -284,7 +284,7 @@ function CustomTokenItemWithRemove({
     if (token.symbol === 'ETH' || token.symbol === 'WETH' || token.symbol === 'cbETH') {
       return formatNumber(balanceFormatted * ethPrice, 2);
     }
-    if (token.symbol === 'USDC' || token.symbol === 'USDbC' || token.symbol === 'DAI') {
+    if (token.symbol === 'USDC' || token.symbol === 'USDT' || token.symbol === 'USDbC' || token.symbol === 'DAI') {
       return formatNumber(balanceFormatted, 2);
     }
     return null;
@@ -389,7 +389,7 @@ function TokenListItem({ token, onClick, isDisabled, ethPrice }: TokenListItemPr
       return formatNumber(balanceFormatted * ethPrice, 2);
     }
     // For stablecoins
-    if (token.symbol === 'USDC' || token.symbol === 'USDbC' || token.symbol === 'DAI') {
+    if (token.symbol === 'USDC' || token.symbol === 'USDT' || token.symbol === 'USDbC' || token.symbol === 'DAI') {
       return formatNumber(balanceFormatted, 2);
     }
     return null;
@@ -1222,7 +1222,7 @@ export default function SwapInterface() {
               console.log('🏆 Using V2 multi-hop route (better rate)');
             }
             setV2Available(true);
-          } catch (error) {
+    } catch (error) {
             console.log('❌ V2 multi-hop route not available');
           }
         }
