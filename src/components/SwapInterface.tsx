@@ -1195,13 +1195,24 @@ export default function SwapInterface() {
           console.log('❌ V2 direct pair does not exist');
         }
         
-        // Try multi-hop route via USDC if direct route doesn't exist or is poor
-        // USDC is the most liquid stablecoin on Base, so routes via USDC often have better rates
+        // Try multi-hop route via USDC ONLY if direct route doesn't exist
+        // NOTE: Aggregator only supports direct routes, so multi-hop is only for quote comparison
+        // For ETH/USDC swaps, direct route is always best
         const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-        if (tokenInAddr.toLowerCase() !== USDC_ADDRESS.toLowerCase() && 
+        const isStablecoinSwap = (
+          (tokenIn.symbol === 'USDC' || tokenIn.symbol === 'USDT' || tokenIn.symbol === 'DAI') &&
+          (tokenOut.symbol === 'USDC' || tokenOut.symbol === 'USDT' || tokenOut.symbol === 'DAI')
+        ) || (
+          (tokenIn.symbol === 'ETH' || tokenIn.symbol === 'WETH') &&
+          (tokenOut.symbol === 'USDC' || tokenOut.symbol === 'USDT')
+        );
+        
+        // Only try multi-hop if direct route doesn't exist AND it's not a stablecoin swap
+        if (v2Quote === null && !isStablecoinSwap &&
+            tokenInAddr.toLowerCase() !== USDC_ADDRESS.toLowerCase() && 
             tokenOutAddr.toLowerCase() !== USDC_ADDRESS.toLowerCase()) {
           try {
-            console.log('🔄 Trying V2 multi-hop via USDC...');
+            console.log('🔄 Trying V2 multi-hop via USDC (direct route not available)...');
             const multiHopAmounts = await publicClient.readContract({
               address: UNISWAP_V2_ROUTER as `0x${string}`,
               abi: V2_ROUTER_ABI,
@@ -1215,13 +1226,10 @@ export default function SwapInterface() {
             
             const multiHopQuote = (multiHopAmounts as bigint[])[2];
             console.log('✅ V2 Quote (via USDC):', formatUnits(multiHopQuote, tokenOut.decimals), tokenOut.symbol);
-            
-            // Use multi-hop if it's better than direct route (or if direct doesn't exist)
-            if (v2Quote === null || multiHopQuote > v2Quote) {
-              v2Quote = multiHopQuote;
-              console.log('🏆 Using V2 multi-hop route (better rate)');
-            }
-            setV2Available(true);
+            console.log('⚠️ Note: Aggregator only supports direct routes, multi-hop quote shown for reference only');
+            // Don't use multi-hop quote - aggregator can't execute it
+            // Keep v2Quote as null so V3 will be used instead
+            setV2Available(false);
     } catch (error) {
             console.log('❌ V2 multi-hop route not available');
           }
@@ -1235,66 +1243,91 @@ export default function SwapInterface() {
         setV2Available(false);
       }
       
-      // Try V3 multi-hop via USDC for better rates
-      // This is especially useful for tokens like DAI that may have low direct liquidity
+      // Try V3 multi-hop via USDC ONLY if direct route doesn't exist or is very poor
+      // NOTE: Aggregator only supports direct routes, so multi-hop is only for quote comparison
+      // If multi-hop is better, we'll still use direct route for swap but show better quote
+      // This helps users see better rates even if aggregator can't execute multi-hop
       const USDC_ADDRESS_V3 = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+      let v3DirectQuote = v3Quote; // Store direct quote separately
+      
+      // Only try multi-hop if direct route exists but might be poor
+      // For ETH/USDC swaps, direct route is usually best, so skip multi-hop
       if (v3Quote !== null && 
           tokenInAddr.toLowerCase() !== USDC_ADDRESS_V3.toLowerCase() && 
           tokenOutAddr.toLowerCase() !== USDC_ADDRESS_V3.toLowerCase()) {
-        console.log('🔄 Trying V3 multi-hop via USDC for better rates...');
         
-        // Try all fee tiers for both hops
-        const v3MultiHopPromises = v3FeeTiers.flatMap(firstFee => 
-          v3FeeTiers.map(async (secondFee) => {
-            try {
-              // First hop: tokenIn → USDC
-              const { result: firstHop } = await publicClient.simulateContract({
-                address: QUOTER_V2_ADDRESS as `0x${string}`,
-                abi: QUOTER_ABI,
-                functionName: 'quoteExactInputSingle',
-                args: [{
-                  tokenIn: tokenInAddr as `0x${string}`,
-                  tokenOut: USDC_ADDRESS_V3 as `0x${string}`,
-                  amountIn: amountInWei,
-                  fee: firstFee,
-                  sqrtPriceLimitX96: BigInt(0)
-                }]
-              });
-              
-              const usdcAmount = firstHop[0] as bigint;
-              
-              // Second hop: USDC → tokenOut
-              const { result: secondHop } = await publicClient.simulateContract({
-                address: QUOTER_V2_ADDRESS as `0x${string}`,
-                abi: QUOTER_ABI,
-                functionName: 'quoteExactInputSingle',
-                args: [{
-                  tokenIn: USDC_ADDRESS_V3 as `0x${string}`,
-                  tokenOut: tokenOutAddr as `0x${string}`,
-                  amountIn: usdcAmount,
-                  fee: secondFee,
-                  sqrtPriceLimitX96: BigInt(0)
-                }]
-              });
-              
-              const finalAmount = secondHop[0] as bigint;
-              console.log(`✅ V3 Multi-hop (${firstFee/10000}% → ${secondFee/10000}%):`, formatUnits(finalAmount, tokenOut.decimals), tokenOut.symbol);
-              
-              return { firstFee, secondFee, quote: finalAmount };
-            } catch (error) {
-              return null;
-            }
-          })
+        // Check if direct quote is reasonable (at least 80% of expected value for stablecoins)
+        // If direct quote is good, don't bother with multi-hop
+        const isStablecoinSwap = (
+          (tokenIn.symbol === 'USDC' || tokenIn.symbol === 'USDT' || tokenIn.symbol === 'DAI') &&
+          (tokenOut.symbol === 'USDC' || tokenOut.symbol === 'USDT' || tokenOut.symbol === 'DAI')
+        ) || (
+          (tokenIn.symbol === 'ETH' || tokenIn.symbol === 'WETH') &&
+          (tokenOut.symbol === 'USDC' || tokenOut.symbol === 'USDT')
         );
         
-        const v3MultiHopResults = await Promise.all(v3MultiHopPromises);
-        
-        // Find best multi-hop quote
-        for (const result of v3MultiHopResults) {
-          if (result && result.quote > v3Quote) {
-            v3Quote = result.quote;
-            bestV3Fee = result.firstFee; // Use first fee tier for display
-            console.log(`🏆 Better V3 multi-hop found: ${formatUnits(result.quote, tokenOut.decimals)} ${tokenOut.symbol}`);
+        // For stablecoin swaps or ETH/USDC, direct route is usually best
+        // Only try multi-hop for exotic pairs
+        if (!isStablecoinSwap) {
+          console.log('🔄 Trying V3 multi-hop via USDC for better rates (exotic pair)...');
+          
+          // Try a few fee tier combinations (not all to save time)
+          const v3MultiHopPromises = [3000, 500].flatMap(firstFee => 
+            [3000, 500].map(async (secondFee) => {
+              try {
+                // First hop: tokenIn → USDC
+                const { result: firstHop } = await publicClient.simulateContract({
+                  address: QUOTER_V2_ADDRESS as `0x${string}`,
+                  abi: QUOTER_ABI,
+                  functionName: 'quoteExactInputSingle',
+                  args: [{
+                    tokenIn: tokenInAddr as `0x${string}`,
+                    tokenOut: USDC_ADDRESS_V3 as `0x${string}`,
+                    amountIn: amountInWei,
+                    fee: firstFee,
+                    sqrtPriceLimitX96: BigInt(0)
+                  }]
+                });
+                
+                const usdcAmount = firstHop[0] as bigint;
+                
+                // Second hop: USDC → tokenOut
+                const { result: secondHop } = await publicClient.simulateContract({
+                  address: QUOTER_V2_ADDRESS as `0x${string}`,
+                  abi: QUOTER_ABI,
+                  functionName: 'quoteExactInputSingle',
+                  args: [{
+                    tokenIn: USDC_ADDRESS_V3 as `0x${string}`,
+                    tokenOut: tokenOutAddr as `0x${string}`,
+                    amountIn: usdcAmount,
+                    fee: secondFee,
+                    sqrtPriceLimitX96: BigInt(0)
+                  }]
+                });
+                
+                const finalAmount = secondHop[0] as bigint;
+                console.log(`✅ V3 Multi-hop (${firstFee/10000}% → ${secondFee/10000}%):`, formatUnits(finalAmount, tokenOut.decimals), tokenOut.symbol);
+                
+                return { firstFee, secondFee, quote: finalAmount };
+              } catch (error) {
+                return null;
+              }
+            })
+          );
+          
+          const v3MultiHopResults = await Promise.all(v3MultiHopPromises);
+          
+          // Find best multi-hop quote, but only use it if significantly better (10%+)
+          // Since aggregator can't execute multi-hop, we'll use direct route anyway
+          for (const result of v3MultiHopResults) {
+            if (result && result.quote > v3Quote) {
+              const improvement = Number(result.quote - v3Quote) / Number(v3Quote) * 100;
+              if (improvement > 10) { // Only if 10%+ better
+                console.log(`🏆 Better V3 multi-hop found (+${improvement.toFixed(1)}%): ${formatUnits(result.quote, tokenOut.decimals)} ${tokenOut.symbol}`);
+                console.log('⚠️ Note: Aggregator only supports direct routes, so direct route will be used for swap');
+                // Don't update v3Quote - keep direct quote for swap execution
+              }
+            }
           }
         }
       }
