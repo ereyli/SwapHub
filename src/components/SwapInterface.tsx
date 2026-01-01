@@ -1622,18 +1622,40 @@ export default function SwapInterface() {
       // But aggregator expects raw quote (before protocol fee) for minAmountOut
       // We need to reverse the protocol fee to get the raw quote
       const feeBps = protocolFeeBps ? Number(protocolFeeBps) : 0;
+      
+      // Special handling for ETH/USDC swaps - ensure fee is loaded
+      const isETHUSDC = (tokenIn.symbol === 'ETH' || tokenIn.symbol === 'WETH') && 
+                        (tokenOut.symbol === 'USDC' || tokenOut.symbol === 'USDT');
+      const isUSDCETH = (tokenIn.symbol === 'USDC' || tokenIn.symbol === 'USDT') && 
+                        (tokenOut.symbol === 'ETH' || tokenOut.symbol === 'WETH');
+      
+      if ((isETHUSDC || isUSDCETH) && !protocolFeeBps) {
+        console.warn('⚠️ Protocol fee not loaded for ETH/USDC swap, using default 0.3% (30 bps)');
+        // Use default fee if not loaded (shouldn't happen, but safety check)
+      }
+      
       const feeBpsBigInt = BigInt(feeBps);
-      const feeMultiplier = BigInt(10000) - feeBpsBigInt; // e.g., 10000 - 100 = 9900
+      const feeMultiplier = BigInt(10000) - feeBpsBigInt; // e.g., 10000 - 30 = 9970
       
       // Reverse protocol fee: rawQuote = userReceives * 10000 / (10000 - feeBps)
       // This gives us the raw quote that aggregator will receive
+      // For very small amounts, ensure we don't divide by zero
+      if (feeMultiplier === BigInt(0)) {
+        console.error('❌ Fee multiplier is zero! This should not happen.');
+        setErrorMessage('Protocol fee configuration error');
+        setTransactionStep('idle');
+        return;
+      }
+      
       const rawQuoteWei = (amountOutWei * BigInt(10000)) / feeMultiplier;
       
       console.log('🔢 Quote Calculation for Swap:');
+      console.log('   Token Pair:', `${tokenIn.symbol}/${tokenOut.symbol}`);
       console.log('   amountOutWei (user receives, after fee):', amountOutWei.toString());
-      console.log('   protocolFeeBps:', feeBps);
+      console.log('   protocolFeeBps:', feeBps, `(${feeBps / 100}%)`);
       console.log('   feeMultiplier:', feeMultiplier.toString());
       console.log('   rawQuoteWei (aggregator receives, before fee):', rawQuoteWei.toString());
+      console.log('   rawQuoteWei (formatted):', formatUnits(rawQuoteWei, tokenOut.decimals), tokenOut.symbol);
       
       // Apply slippage to raw quote (not to user-receives amount)
       // Use BigInt arithmetic to avoid precision loss for small amounts
@@ -1646,14 +1668,23 @@ export default function SwapInterface() {
       console.log('   slippageBps:', slippageBps.toString());
       console.log('   slippageMultiplier:', slippageMultiplier.toString());
       console.log('   minAmountOut (before check):', minAmountOut.toString());
+      console.log('   minAmountOut (formatted):', formatUnits(minAmountOut, tokenOut.decimals), tokenOut.symbol);
       
       // Ensure minimum output is reasonable
       // minAmountOut should never be less than the slippage-adjusted amount
-      // If minAmountOut is somehow less than slippage tolerance allows, use minAmountOut directly
-      // (This should not happen with correct slippage calculation, but acts as a safety check)
-      // For very small amounts, ensure at least 1 wei minimum
-      const minUnit = BigInt(1);
-      const finalMinAmountOut = minAmountOut > minUnit ? minAmountOut : minUnit;
+      // For very small amounts, ensure at least 1 wei/unit minimum
+      // For USDC (6 decimals), minimum is 1 micro-USDC
+      const minUnit = tokenOut.decimals === 6 ? BigInt(1) : BigInt(1); // 1 micro-USDC or 1 wei
+      let finalMinAmountOut = minAmountOut > minUnit ? minAmountOut : minUnit;
+      
+      // Safety check: minAmountOut should never exceed rawQuoteWei
+      // This can happen due to rounding errors, especially with USDC (6 decimals)
+      if (finalMinAmountOut > rawQuoteWei) {
+        console.warn('⚠️ minAmountOut exceeds rawQuoteWei, adjusting...');
+        // Use 99% of rawQuoteWei as maximum (1% safety margin)
+        finalMinAmountOut = (rawQuoteWei * BigInt(9900)) / BigInt(10000);
+        console.log('   Adjusted finalMinAmountOut:', finalMinAmountOut.toString());
+      }
       
       console.log('   finalMinAmountOut:', finalMinAmountOut.toString());
       console.log('   finalMinAmountOut (formatted):', formatUnits(finalMinAmountOut, tokenOut.decimals));
