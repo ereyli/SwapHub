@@ -1116,12 +1116,13 @@ export default function SwapInterface() {
       let bestQuote: bigint = BigInt(0);
       let bestV3Fee: number = selectedFeeTier;
       
-      // Try V3 quote - Try ALL fee tiers and pick the best one!
-      // This ensures we find the pool with best liquidity
-      console.log('🔷 Trying Uniswap V3 (all fee tiers)...');
+      // Try V3 quote - Try ALL fee tiers for ALL tokens to find best liquidity!
+      // This ensures we find the pool with best liquidity across all available tiers
+      console.log('🔷 Scanning all Uniswap V3 fee tiers for best liquidity...');
       const v3FeeTiers = [100, 500, 3000, 10000]; // 0.01%, 0.05%, 0.3%, 1%
       
-      for (const feeTier of v3FeeTiers) {
+      // Try all fee tiers in parallel for faster execution
+      const v3Promises = v3FeeTiers.map(async (feeTier) => {
         try {
           const { result } = await publicClient.simulateContract({
             address: QUOTER_V2_ADDRESS as `0x${string}`,
@@ -1137,14 +1138,21 @@ export default function SwapInterface() {
           });
           const quote = result[0] as bigint;
           console.log(`✅ V3 Quote (${feeTier/10000}%):`, formatUnits(quote, tokenOut.decimals), tokenOut.symbol);
-          
-          // Keep the best quote
-          if (v3Quote === null || quote > v3Quote) {
-            v3Quote = quote;
-            bestV3Fee = feeTier;
-          }
+          return { feeTier, quote };
         } catch (error) {
           console.log(`❌ V3 pool not found for fee tier ${feeTier/10000}%`);
+          return null;
+        }
+      });
+      
+      // Wait for all V3 tier checks to complete
+      const v3Results = await Promise.all(v3Promises);
+      
+      // Find the best V3 quote across all tiers
+      for (const result of v3Results) {
+        if (result && (v3Quote === null || result.quote > v3Quote)) {
+          v3Quote = result.quote;
+          bestV3Fee = result.feeTier;
         }
       }
       
@@ -1154,13 +1162,13 @@ export default function SwapInterface() {
         // Update selected fee tier to the best one found
         setSelectedFeeTier(bestV3Fee);
       } else {
-        console.log('❌ No V3 pools found');
+        console.log('❌ No V3 pools found across all fee tiers');
         setV3Available(false);
       }
 
-      // Try V2 quote
+      // Try V2 quote (V2 doesn't have fee tiers, just one pool per pair)
       try {
-        console.log('🔶 Trying Uniswap V2...');
+        console.log('🔶 Checking Uniswap V2...');
         
         // First check if V2 pair exists
         const pairAddress = await publicClient.readContract({
