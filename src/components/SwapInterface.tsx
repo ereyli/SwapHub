@@ -237,6 +237,7 @@ interface TokenListItemProps {
   token: AppToken;
   onClick: () => void;
   isDisabled?: boolean;
+  ethPrice: number;
 }
 
 // Custom token item with remove button
@@ -244,12 +245,14 @@ function CustomTokenItemWithRemove({
   token, 
   isOtherToken, 
   onSelect, 
-  onRemove 
+  onRemove,
+  ethPrice
 }: { 
   token: AppToken; 
   isOtherToken: boolean; 
   onSelect: () => void; 
   onRemove: (e: React.MouseEvent) => void;
+  ethPrice: number;
 }) {
   const { address: userAddress } = useAccount();
   const { data: balance } = useBalance({
@@ -265,9 +268,7 @@ function CustomTokenItemWithRemove({
   const getUsdValue = () => {
     if (!balance || balanceFormatted === 0) return null;
     if (token.symbol === 'ETH' || token.symbol === 'WETH' || token.symbol === 'cbETH') {
-      // Note: We can't access ethPriceUsd state here as this is outside the main component
-      // We'll need to pass it as a prop or use the cached value
-      return formatNumber(balanceFormatted * cachedEthPrice, 2);
+      return formatNumber(balanceFormatted * ethPrice, 2);
     }
     if (token.symbol === 'USDC' || token.symbol === 'USDbC' || token.symbol === 'DAI') {
       return formatNumber(balanceFormatted, 2);
@@ -353,7 +354,7 @@ function CustomTokenItemWithRemove({
   );
 }
 
-function TokenListItem({ token, onClick, isDisabled }: TokenListItemProps) {
+function TokenListItem({ token, onClick, isDisabled, ethPrice }: TokenListItemProps) {
   const { address } = useAccount();
   const { data: balance } = useBalance({
     address: address,
@@ -370,10 +371,8 @@ function TokenListItem({ token, onClick, isDisabled }: TokenListItemProps) {
     if (!balance || balanceFormatted === 0) return null;
     
     // For ETH-based tokens
-    // Note: We can't access ethPriceUsd state here as this is outside the main component
-    // We'll need to pass it as a prop or use the cached value
     if (token.symbol === 'ETH' || token.symbol === 'WETH' || token.symbol === 'cbETH') {
-      return formatNumber(balanceFormatted * cachedEthPrice, 2);
+      return formatNumber(balanceFormatted * ethPrice, 2);
     }
     // For stablecoins
     if (token.symbol === 'USDC' || token.symbol === 'USDbC' || token.symbol === 'DAI') {
@@ -2470,6 +2469,7 @@ export default function SwapInterface() {
                           isOtherToken={isOtherToken}
                           onSelect={() => handleTokenSelect(token, showTokenSelect!)}
                           onRemove={handleRemove}
+                          ethPrice={ethPriceUsd}
                         />
                       );
                     })}
@@ -2500,6 +2500,7 @@ export default function SwapInterface() {
                         token={token}
                         isDisabled={isOtherToken}
                         onClick={() => handleTokenSelect(token, showTokenSelect!)}
+                        ethPrice={ethPriceUsd}
                       />
                     );
                   })}
