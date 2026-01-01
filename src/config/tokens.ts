@@ -130,7 +130,7 @@ export const DEFAULT_TOKENS: Record<string, AppToken> = {
     symbol: 'DEGEN',
     name: 'Degen',
     decimals: 18,
-    logoURI: 'https://assets.coingecko.com/coins/images/34557/small/degen.png',
+    logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/assets/0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed/logo.png',
     isNative: false,
     sdkToken: DEGEN_TOKEN
   }
