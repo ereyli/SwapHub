@@ -64,14 +64,28 @@ function calculateUsdValue(
   const amountNum = parseFloat(amount);
   if (isNaN(amountNum) || amountNum <= 0) return '$0';
   
-  // ETH/WETH/cbETH: Use ETH price
+  // ETH/WETH/cbETH: Use ETH price directly
   if (token.symbol === 'ETH' || token.symbol === 'WETH' || token.symbol === 'cbETH') {
     const usdValue = amountNum * ethPrice;
     return `$${formatNumber(usdValue, 2)}`;
   }
   
-  // Stablecoins: 1 USD per token
+  // Stablecoins: Calculate based on swap ratio if available (to show consistent pricing)
+  // This ensures both input and output show same base USD value
   if (token.symbol === 'USDC' || token.symbol === 'USDT' || token.symbol === 'DAI') {
+    // If we have swap data with ETH/WETH/cbETH, calculate USD value from ETH price
+    // This ensures output stablecoin shows same USD value as input ETH
+    if (swapAmount && swapToken && parseFloat(swapAmount) > 0) {
+      if (swapToken.symbol === 'ETH' || swapToken.symbol === 'WETH' || swapToken.symbol === 'cbETH') {
+        const swapAmountNum = parseFloat(swapAmount);
+        const swapUsdValue = swapAmountNum * ethPrice;
+        // Calculate implied price: outputAmount = inputUsdValue
+        // This makes USD values consistent on both sides
+        const impliedPrice = swapUsdValue / amountNum;
+        return `$${formatNumber(amountNum * impliedPrice, 2)}`;
+      }
+    }
+    // Default: 1:1 with USD
     return `$${formatNumber(amountNum, 2)}`;
   }
   
@@ -1060,13 +1074,13 @@ export default function SwapInterface() {
 
   // Fetch quote from both Uniswap V3 and V2, use best available
   useEffect(() => {
-    const fetchQuote = async () => {
-      if (!amountIn || parseFloat(amountIn) <= 0) {
+  const fetchQuote = async () => {
+    if (!amountIn || parseFloat(amountIn) <= 0) {
         setAmountOut('0');
         setPriceImpact('0');
         setNoLiquidityError(false);
-        return;
-      }
+      return;
+    }
 
       // Special case: Wrap/Unwrap (1:1 conversion, no swap needed)
       if (isWrapOperation) {
@@ -1151,8 +1165,8 @@ export default function SwapInterface() {
         } else {
           console.log('❌ V2 pair does not exist');
           setV2Available(false);
-        }
-      } catch (error) {
+      }
+    } catch (error) {
         console.log('❌ V2 pool not found or error');
         setV2Available(false);
       }
@@ -1281,19 +1295,19 @@ export default function SwapInterface() {
 
     setErrorMessage(null);
     setTransactionStep('approving');
-    
+
     // MAX APPROVE: One-time unlimited approval like Uniswap
     // User only needs to approve once per token, never again
     console.log('🔓 Step 1: Max Approving Aggregator:', SWAP_AGGREGATOR);
 
     try {
-      writeContract({
+    writeContract({
         address: tokenIn.address as `0x${string}`,
-        abi: ERC20_ABI,
-        functionName: 'approve',
+      abi: ERC20_ABI,
+      functionName: 'approve',
         args: [SWAP_AGGREGATOR, maxUint256], // Unlimited approval
-        chainId: base.id
-      });
+      chainId: base.id
+    });
     } catch (error: any) {
       setTransactionStep('idle');
       if (error.code === 4001) {
@@ -1387,7 +1401,7 @@ export default function SwapInterface() {
       try {
         if (isWrap) {
           // ETH → WETH: Call deposit() with ETH value
-          writeContract({
+    writeContract({
             address: WETH_ADDRESS as `0x${string}`,
             abi: WETH_ABI,
             functionName: 'deposit',
@@ -1505,9 +1519,9 @@ export default function SwapInterface() {
         console.log('🔶 Using Aggregator swapV2');
         txConfig = {
           address: SWAP_AGGREGATOR as `0x${string}`,
-          abi: AGGREGATOR_ABI,
+      abi: AGGREGATOR_ABI,
           functionName: 'swapV2',
-          args: [
+      args: [
             tokenInAddr,    // tokenIn (address(0) for ETH)
             tokenOutAddr,   // tokenOut (address(0) for ETH)
             amountInWei,    // amountIn
@@ -1618,7 +1632,7 @@ export default function SwapInterface() {
         
         // Clear after 3 seconds
         const timer = setTimeout(() => {
-          setAmountIn('');
+    setAmountIn('');
           setAmountOut('0');
           setTransactionStep('idle');
         }, 3000);
@@ -1795,7 +1809,7 @@ export default function SwapInterface() {
     }
   } : {};
 
-  return (
+    return (
     <div style={styles.pageContainer}>
       {/* Header */}
       <header style={getStyle(styles.header, mobileOverrides.header)}>
@@ -1803,7 +1817,7 @@ export default function SwapInterface() {
           <div style={getStyle(styles.logo, mobileOverrides.logo)}>
             <img src={swaphubLogo} alt="SwapHub" style={getStyle(styles.logoImage, mobileOverrides.logoImage)} />
             <span style={getStyle(styles.logoText, mobileOverrides.logoText)}>SwapHub</span>
-          </div>
+        </div>
           {!isMobile && (
             <nav style={getStyle(styles.nav, mobileOverrides.nav)}>
               <a href="#" style={getStyle(styles.navLinkActive, mobileOverrides.navLinkActive)}>Swap</a>
@@ -1818,7 +1832,7 @@ export default function SwapInterface() {
           {isMobile && (
             <div style={getStyle(styles.headerRight, mobileOverrides.headerRight)}>
               <ConnectButton />
-            </div>
+      </div>
           )}
         </div>
         {isMobile && (
@@ -2021,7 +2035,7 @@ export default function SwapInterface() {
                 </button>
               </span>
             )}
-          </div>
+        </div>
         )}
 
         {(isPending || isConfirming) && (
@@ -2182,9 +2196,9 @@ export default function SwapInterface() {
               <div style={styles.slippageCustom}>
                 <span style={styles.slippageCustomLabel}>Custom</span>
                 <div style={styles.slippageInputWrapper}>
-                  <input
-                    type="number"
-                    value={slippage}
+          <input
+            type="number"
+            value={slippage}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value);
                       if (!isNaN(val) && val >= 0.01 && val <= 50) {
@@ -2192,25 +2206,25 @@ export default function SwapInterface() {
                         localStorage.setItem('swapSlippage', val.toString());
                       }
                     }}
-                    step="0.1"
+            step="0.1"
                     min="0.01"
                     max="50"
                     style={styles.slippageCustomInput}
-                  />
+          />
                   <span style={styles.slippagePercent}>%</span>
-                </div>
-              </div>
+        </div>
+            </div>
               {slippage > 5 && (
                 <div style={styles.slippageWarning}>
                   ⚠️ High slippage increases risk of frontrunning
-                </div>
+            </div>
               )}
               {slippage < 0.1 && (
                 <div style={styles.slippageWarning}>
                   ⚠️ Very low slippage may cause transaction to fail
-                </div>
-              )}
             </div>
+              )}
+          </div>
           </>
         )}
 
@@ -2222,7 +2236,7 @@ export default function SwapInterface() {
               onClick={() => setShowStatistics(false)}
             />
             <div style={getStyle({ ...styles.statisticsModal, position: 'relative' as const }, mobileOverrides.statisticsModal)}>
-              <button 
+          <button
                 onClick={() => setShowStatistics(false)} 
                 style={{
                   position: 'absolute' as const,
@@ -2254,7 +2268,7 @@ export default function SwapInterface() {
                 }}
               >
                 ×
-              </button>
+          </button>
               <StatsPanel isMobile={isMobile} />
             </div>
           </>
@@ -2374,12 +2388,12 @@ export default function SwapInterface() {
                       </div>
                     </div>
                   </div>
-                  <button 
+          <button
                     style={styles.importButton}
                     onClick={handleImportToken}
-                  >
+          >
                     Import
-                  </button>
+          </button>
                 </div>
               )}
 
@@ -2433,8 +2447,8 @@ export default function SwapInterface() {
                       I understand, import
                     </button>
                   </div>
-                </div>
-              )}
+          </div>
+        )}
 
               {/* Custom Tokens Section */}
               {Object.keys(customTokens).length > 0 && !tokenSearchQuery && (
