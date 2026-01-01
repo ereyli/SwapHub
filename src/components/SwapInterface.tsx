@@ -1114,27 +1114,47 @@ export default function SwapInterface() {
       let v2Quote: bigint | null = null;
       let bestProtocol: SwapProtocol = 'v3';
       let bestQuote: bigint = BigInt(0);
+      let bestV3Fee: number = selectedFeeTier;
       
-      // Try V3 quote
-      try {
-        console.log('🔷 Trying Uniswap V3...');
-        const { result } = await publicClient.simulateContract({
-          address: QUOTER_V2_ADDRESS as `0x${string}`,
-          abi: QUOTER_ABI,
-          functionName: 'quoteExactInputSingle',
-          args: [{
-            tokenIn: tokenInAddr as `0x${string}`,
-            tokenOut: tokenOutAddr as `0x${string}`,
-            amountIn: amountInWei,
-            fee: selectedFeeTier,
-            sqrtPriceLimitX96: BigInt(0)
-          }]
-        });
-        v3Quote = result[0] as bigint;
-        console.log('✅ V3 Quote:', formatUnits(v3Quote, tokenOut.decimals), tokenOut.symbol);
+      // Try V3 quote - Try ALL fee tiers and pick the best one!
+      // This ensures we find the pool with best liquidity
+      console.log('🔷 Trying Uniswap V3 (all fee tiers)...');
+      const v3FeeTiers = [100, 500, 3000, 10000]; // 0.01%, 0.05%, 0.3%, 1%
+      
+      for (const feeTier of v3FeeTiers) {
+        try {
+          const { result } = await publicClient.simulateContract({
+            address: QUOTER_V2_ADDRESS as `0x${string}`,
+            abi: QUOTER_ABI,
+            functionName: 'quoteExactInputSingle',
+            args: [{
+              tokenIn: tokenInAddr as `0x${string}`,
+              tokenOut: tokenOutAddr as `0x${string}`,
+              amountIn: amountInWei,
+              fee: feeTier,
+              sqrtPriceLimitX96: BigInt(0)
+            }]
+          });
+          const quote = result[0] as bigint;
+          console.log(`✅ V3 Quote (${feeTier/10000}%):`, formatUnits(quote, tokenOut.decimals), tokenOut.symbol);
+          
+          // Keep the best quote
+          if (v3Quote === null || quote > v3Quote) {
+            v3Quote = quote;
+            bestV3Fee = feeTier;
+          }
+        } catch (error) {
+          console.log(`❌ V3 pool not found for fee tier ${feeTier/10000}%`);
+        }
+      }
+      
+      if (v3Quote !== null) {
+        console.log(`🏆 Best V3 Quote: ${formatUnits(v3Quote, tokenOut.decimals)} ${tokenOut.symbol} (fee: ${bestV3Fee/10000}%)`);
         setV3Available(true);
-      } catch (error) {
-        console.log('❌ V3 pool not found or error');
+        // Update selected fee tier to the best one found
+        setSelectedFeeTier(bestV3Fee);
+      } else {
+        console.log('❌ No V3 pools found');
         setV3Available(false);
       }
 
