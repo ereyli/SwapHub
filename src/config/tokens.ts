@@ -26,7 +26,7 @@ export const TOKEN_ADDRESSES = {
   AERO: '0x940181a94A35A4569E4529A3CDfB74e38FD98631', // Aerodrome
   BRETT: '0x532f27101965dd16442E59d40670FaF5eBB142E4', // Brett (Based)
   DEGEN: '0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed', // Degen (Base native meme token)
-  MOONWELL: '0x628ff693426583D9a7FB391E54366292F509A457', // Moonwell Finance
+  // MOONWELL: '0x628ff693426583D9a7FB391E54366292F509A457', // Invalid address - commented out
 };
 
 // SDK Token instances
@@ -40,7 +40,7 @@ const cbETH_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.cbETH, 18, 'cbETH',
 const AERO_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.AERO, 18, 'AERO', 'Aerodrome');
 const BRETT_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.BRETT, 18, 'BRETT', 'Brett');
 const DEGEN_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.DEGEN, 18, 'DEGEN', 'Degen');
-const MOONWELL_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.MOONWELL, 18, 'MOONWELL', 'Moonwell');
+// const MOONWELL_TOKEN = new Token(BASE_CHAIN_ID, TOKEN_ADDRESSES.MOONWELL, 18, 'MOONWELL', 'Moonwell'); // Invalid address
 
 // Default token list
 export const DEFAULT_TOKENS: Record<string, AppToken> = {
@@ -133,15 +133,6 @@ export const DEFAULT_TOKENS: Record<string, AppToken> = {
     logoURI: 'https://assets.coingecko.com/coins/images/34557/small/degen.png',
     isNative: false,
     sdkToken: DEGEN_TOKEN
-  },
-  MOONWELL: {
-    address: TOKEN_ADDRESSES.MOONWELL,
-    symbol: 'MOONWELL',
-    name: 'Moonwell',
-    decimals: 18,
-    logoURI: 'https://assets.coingecko.com/coins/images/25512/small/moonwell.png',
-    isNative: false,
-    sdkToken: MOONWELL_TOKEN
   }
 };
 
