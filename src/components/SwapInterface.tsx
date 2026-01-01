@@ -1618,16 +1618,31 @@ export default function SwapInterface() {
         return;
       }
       
-      // Apply slippage to get minAmountOut
+      // IMPORTANT: amountOutWei is the user-receives amount (after protocol fee)
+      // But aggregator expects raw quote (before protocol fee) for minAmountOut
+      // We need to reverse the protocol fee to get the raw quote
+      const feeBps = protocolFeeBps ? Number(protocolFeeBps) : 0;
+      const feeBpsBigInt = BigInt(feeBps);
+      const feeMultiplier = BigInt(10000) - feeBpsBigInt; // e.g., 10000 - 100 = 9900
+      
+      // Reverse protocol fee: rawQuote = userReceives * 10000 / (10000 - feeBps)
+      // This gives us the raw quote that aggregator will receive
+      const rawQuoteWei = (amountOutWei * BigInt(10000)) / feeMultiplier;
+      
+      console.log('🔢 Quote Calculation for Swap:');
+      console.log('   amountOutWei (user receives, after fee):', amountOutWei.toString());
+      console.log('   protocolFeeBps:', feeBps);
+      console.log('   feeMultiplier:', feeMultiplier.toString());
+      console.log('   rawQuoteWei (aggregator receives, before fee):', rawQuoteWei.toString());
+      
+      // Apply slippage to raw quote (not to user-receives amount)
       // Use BigInt arithmetic to avoid precision loss for small amounts
       // slippage is in percentage (e.g., 0.5 means 0.5%)
-      // multiplier = (10000 - slippage * 100) / 10000 (to avoid floating point issues)
       const slippageBps = BigInt(Math.round(slippage * 100)); // Convert to basis points (0.5% = 50 bps)
       const slippageMultiplier = BigInt(10000) - slippageBps; // e.g., 10000 - 50 = 9950
-      const minAmountOut = (amountOutWei * slippageMultiplier) / BigInt(10000);
+      const minAmountOut = (rawQuoteWei * slippageMultiplier) / BigInt(10000);
       
       console.log('🔢 Min Amount Out Calculation:');
-      console.log('   amountOutWei:', amountOutWei.toString());
       console.log('   slippageBps:', slippageBps.toString());
       console.log('   slippageMultiplier:', slippageMultiplier.toString());
       console.log('   minAmountOut (before check):', minAmountOut.toString());
