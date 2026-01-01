@@ -716,6 +716,9 @@ export default function SwapInterface() {
   const { isLoading: isConfirming, isSuccess, error: txError } = useWaitForTransactionReceipt({ hash });
   const publicClient = usePublicClient();
 
+  // ETH price state - updated from CoinGecko API
+  const [ethPriceUsd, setEthPriceUsd] = useState<number>(2950);
+
   // Mobile responsive hook
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
