@@ -1167,10 +1167,11 @@ export default function SwapInterface() {
       }
 
       // Try V2 quote (V2 doesn't have fee tiers, just one pool per pair)
+      // Also try multi-hop routes via USDC for better liquidity
       try {
         console.log('🔶 Checking Uniswap V2...');
         
-        // First check if V2 pair exists
+        // First check if V2 pair exists (direct route)
         const pairAddress = await publicClient.readContract({
           address: UNISWAP_V2_FACTORY as `0x${string}`,
           abi: V2_FACTORY_ABI,
@@ -1179,7 +1180,7 @@ export default function SwapInterface() {
         });
 
         if (pairAddress && pairAddress !== '0x0000000000000000000000000000000000000000') {
-          // Get V2 quote
+          // Get V2 quote (direct route)
           const amounts = await publicClient.readContract({
             address: UNISWAP_V2_ROUTER as `0x${string}`,
             abi: V2_ROUTER_ABI,
@@ -1188,15 +1189,114 @@ export default function SwapInterface() {
           });
           
           v2Quote = (amounts as bigint[])[1];
-          console.log('✅ V2 Quote:', formatUnits(v2Quote, tokenOut.decimals), tokenOut.symbol);
+          console.log('✅ V2 Quote (direct):', formatUnits(v2Quote, tokenOut.decimals), tokenOut.symbol);
           setV2Available(true);
         } else {
-          console.log('❌ V2 pair does not exist');
+          console.log('❌ V2 direct pair does not exist');
+        }
+        
+        // Try multi-hop route via USDC if direct route doesn't exist or is poor
+        // USDC is the most liquid stablecoin on Base, so routes via USDC often have better rates
+        const USDC_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+        if (tokenInAddr.toLowerCase() !== USDC_ADDRESS.toLowerCase() && 
+            tokenOutAddr.toLowerCase() !== USDC_ADDRESS.toLowerCase()) {
+          try {
+            console.log('🔄 Trying V2 multi-hop via USDC...');
+            const multiHopAmounts = await publicClient.readContract({
+              address: UNISWAP_V2_ROUTER as `0x${string}`,
+              abi: V2_ROUTER_ABI,
+              functionName: 'getAmountsOut',
+              args: [amountInWei, [
+                tokenInAddr as `0x${string}`, 
+                USDC_ADDRESS as `0x${string}`,
+                tokenOutAddr as `0x${string}`
+              ]]
+            });
+            
+            const multiHopQuote = (multiHopAmounts as bigint[])[2];
+            console.log('✅ V2 Quote (via USDC):', formatUnits(multiHopQuote, tokenOut.decimals), tokenOut.symbol);
+            
+            // Use multi-hop if it's better than direct route (or if direct doesn't exist)
+            if (v2Quote === null || multiHopQuote > v2Quote) {
+              v2Quote = multiHopQuote;
+              console.log('🏆 Using V2 multi-hop route (better rate)');
+            }
+            setV2Available(true);
+          } catch (error) {
+            console.log('❌ V2 multi-hop route not available');
+          }
+        }
+        
+        if (v2Quote === null) {
           setV2Available(false);
-      }
-    } catch (error) {
+        }
+      } catch (error) {
         console.log('❌ V2 pool not found or error');
         setV2Available(false);
+      }
+      
+      // Try V3 multi-hop via USDC for better rates
+      // This is especially useful for tokens like DAI that may have low direct liquidity
+      const USDC_ADDRESS_V3 = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+      if (v3Quote !== null && 
+          tokenInAddr.toLowerCase() !== USDC_ADDRESS_V3.toLowerCase() && 
+          tokenOutAddr.toLowerCase() !== USDC_ADDRESS_V3.toLowerCase()) {
+        console.log('🔄 Trying V3 multi-hop via USDC for better rates...');
+        
+        // Try all fee tiers for both hops
+        const v3MultiHopPromises = v3FeeTiers.flatMap(firstFee => 
+          v3FeeTiers.map(async (secondFee) => {
+            try {
+              // First hop: tokenIn → USDC
+              const { result: firstHop } = await publicClient.simulateContract({
+                address: QUOTER_V2_ADDRESS as `0x${string}`,
+                abi: QUOTER_ABI,
+                functionName: 'quoteExactInputSingle',
+                args: [{
+                  tokenIn: tokenInAddr as `0x${string}`,
+                  tokenOut: USDC_ADDRESS_V3 as `0x${string}`,
+                  amountIn: amountInWei,
+                  fee: firstFee,
+                  sqrtPriceLimitX96: BigInt(0)
+                }]
+              });
+              
+              const usdcAmount = firstHop[0] as bigint;
+              
+              // Second hop: USDC → tokenOut
+              const { result: secondHop } = await publicClient.simulateContract({
+                address: QUOTER_V2_ADDRESS as `0x${string}`,
+                abi: QUOTER_ABI,
+                functionName: 'quoteExactInputSingle',
+                args: [{
+                  tokenIn: USDC_ADDRESS_V3 as `0x${string}`,
+                  tokenOut: tokenOutAddr as `0x${string}`,
+                  amountIn: usdcAmount,
+                  fee: secondFee,
+                  sqrtPriceLimitX96: BigInt(0)
+                }]
+              });
+              
+              const finalAmount = secondHop[0] as bigint;
+              console.log(`✅ V3 Multi-hop (${firstFee/10000}% → ${secondFee/10000}%):`, formatUnits(finalAmount, tokenOut.decimals), tokenOut.symbol);
+              
+              return { firstFee, secondFee, quote: finalAmount };
+            } catch (error) {
+              return null;
+            }
+          })
+        );
+        
+        const v3MultiHopResults = await Promise.all(v3MultiHopPromises);
+        
+        // Find best multi-hop quote
+        for (const result of v3MultiHopResults) {
+          if (result && result.quote > v3Quote) {
+            v3Quote = result.quote;
+            bestV3Fee = result.firstFee; // Use first fee tier for display
+            console.log(`🏆 Better V3 multi-hop found: ${formatUnits(result.quote, tokenOut.decimals)} ${tokenOut.symbol}`);
+          }
+        }
       }
 
       // Determine best quote
