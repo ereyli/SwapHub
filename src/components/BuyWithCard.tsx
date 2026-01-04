@@ -41,7 +41,7 @@ const BuyWithCard: React.FC<BuyWithCardProps> = ({ onSuccess }) => {
     }
   }, [onSuccess]);
 
-  const handleBuyWithCard = () => {
+  const handleBuyWithCard = async () => {
     if (!address || !isConnected) {
       console.warn('⚠️ Wallet not connected');
       return;
@@ -49,52 +49,65 @@ const BuyWithCard: React.FC<BuyWithCardProps> = ({ onSuccess }) => {
 
     setIsOpening(true);
 
-    // Generate Coinbase Onramp URL
-    // URL format: https://pay.coinbase.com/buy?<params>
-    // 
-    // Note: For production, use session token API for better security
-    // See: https://docs.cdp.coinbase.com/onramp-&-offramp/onramp-apis/generating-onramp-url
-    // 
-    // This is a simple URL-based approach (non-secure but works for basic use cases)
-    // Session token is recommended for production to securely pass wallet address
-    const baseUrl = 'https://pay.coinbase.com/buy';
-    
-    // Build redirect URL with success parameter
-    const redirectUrl = new URL(window.location.href);
-    redirectUrl.searchParams.set('onramp', 'success');
-    
-    const params = new URLSearchParams({
-      // Destination wallet address (passed as query param - not secure, but works)
-      // For production, use session token API instead
-      destinationWallets: JSON.stringify([{
-        address: address,
-        assets: ['USDC'],
-        supportedNetworks: ['base']
-      }]),
-      // Default asset
-      defaultAsset: 'USDC',
-      // Default network (Base)
-      defaultNetwork: 'base',
-      // Redirect URL after successful purchase
-      redirectUrl: redirectUrl.toString(),
-      // Default experience: 'buy' (purchase with card/bank)
-      defaultExperience: 'buy',
-      // Optional: Preset fiat amount (remove to let user choose)
-      // presetFiatAmount: '100',
-      // fiatCurrency: 'USD',
-    });
+    try {
+      // Get session token from backend API
+      const response = await fetch('/api/onramp-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ address })
+      });
 
-    const onrampUrl = `${baseUrl}?${params.toString()}`;
-    
-    console.log('🚀 Opening Coinbase Onramp:', onrampUrl);
-    console.log('📍 Destination wallet:', address);
-    console.log('🌐 Network: Base');
-    console.log('💰 Asset: USDC');
-    console.log('🔄 Redirect URL:', redirectUrl.toString());
-    
-    // Redirect to Coinbase Onramp
-    // User will be redirected back to redirectUrl after purchase
-    window.location.href = onrampUrl;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create session token');
+      }
+
+      const { token: sessionToken } = await response.json();
+
+      // Generate Coinbase Onramp URL with session token
+      // URL format: https://pay.coinbase.com/buy?sessionToken=...&<params>
+      // 
+      // See: https://docs.cdp.coinbase.com/onramp-&-offramp/onramp-apis/generating-onramp-url
+      const baseUrl = 'https://pay.coinbase.com/buy';
+      
+      // Build redirect URL with success parameter
+      const redirectUrl = new URL(window.location.href);
+      redirectUrl.searchParams.set('onramp', 'success');
+      
+      const params = new URLSearchParams({
+        // Session token (required for secure initialization)
+        sessionToken: sessionToken,
+        // Default asset
+        defaultAsset: 'USDC',
+        // Default network (Base)
+        defaultNetwork: 'base',
+        // Redirect URL after successful purchase
+        redirectUrl: redirectUrl.toString(),
+        // Default experience: 'buy' (purchase with card/bank)
+        defaultExperience: 'buy',
+        // Optional: Preset fiat amount (remove to let user choose)
+        // presetFiatAmount: '100',
+        // fiatCurrency: 'USD',
+      });
+
+      const onrampUrl = `${baseUrl}?${params.toString()}`;
+      
+      console.log('🚀 Opening Coinbase Onramp:', onrampUrl);
+      console.log('📍 Destination wallet:', address);
+      console.log('🌐 Network: Base');
+      console.log('💰 Asset: USDC');
+      console.log('🔄 Redirect URL:', redirectUrl.toString());
+      
+      // Redirect to Coinbase Onramp
+      // User will be redirected back to redirectUrl after purchase
+      window.location.href = onrampUrl;
+    } catch (error) {
+      console.error('❌ Error creating session token:', error);
+      alert(`Error: ${error.message}\n\nPlease ensure Coinbase API credentials are configured in Vercel environment variables.`);
+      setIsOpening(false);
+    }
   };
 
   if (!isConnected) {
