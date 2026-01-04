@@ -6,7 +6,6 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { DEFAULT_TOKENS, POPULAR_TOKENS, FEE_TIERS, searchTokens, getAllTokens, saveCustomToken, removeCustomToken, getTokenByAddress, BASE_CHAIN_ID, type AppToken } from '../config/tokens';
 import { Token } from '@uniswap/sdk-core';
 import StatsPanel from './StatsPanel';
-import BuyWithCard from './BuyWithCard';
 import swaphubLogo from '../assets/swaphub-logo.png';
 
 // ETH price state - will be fetched from CoinGecko API
@@ -2103,7 +2102,6 @@ export default function SwapInterface() {
           )}
           {isMobile && (
             <div style={getStyle(styles.headerRight, mobileOverrides.headerRight)}>
-              <BuyWithCard />
               <ConnectButton />
       </div>
           )}
@@ -2129,7 +2127,6 @@ export default function SwapInterface() {
                 style={getStyle(styles.searchInput, mobileOverrides.searchInput)}
               />
             </div>
-            <BuyWithCard />
             <ConnectButton />
           </div>
         )}
