@@ -743,6 +743,20 @@ export default function SwapInterface() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // Header opacity on scroll - şeffaflaşma efekti
+  const [headerOpacity, setHeaderOpacity] = useState(1);
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollY = window.scrollY || window.pageYOffset;
+      // İlk 50px'de tamamen görünür, sonra şeffaflaş
+      const opacity = Math.max(0.3, 1 - (scrollY / 150));
+      setHeaderOpacity(opacity);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
   // Fetch ETH price on mount and periodically update
   useEffect(() => {
     const updateEthPrice = async () => {
@@ -2005,7 +2019,7 @@ export default function SwapInterface() {
     header: { padding: '8px 12px', flexWrap: 'wrap' as const },
     headerLeft: { gap: '12px', width: '100%' },
     logo: { gap: '6px' },
-    logoImage: { width: '40px', height: '40px' },
+    logoImage: { width: '60px', height: '60px' },
     logoText: { fontSize: '18px' },
     nav: { gap: '4px' },
     navLink: { padding: '6px 12px', fontSize: '14px' },
@@ -2077,13 +2091,44 @@ export default function SwapInterface() {
     sectionTitle: {
       fontSize: '11px',
       padding: '6px 8px 3px'
+    },
+    routeContainer: {
+      padding: '8px',
+      gap: '8px',
+      minHeight: '50px'
+    },
+    routeToken: {
+      minWidth: '50px'
+    },
+    routeTokenIcon: {
+      width: '28px',
+      height: '28px'
+    },
+    routeTokenSymbol: {
+      fontSize: '10px'
+    },
+    routeProtocol: {
+      padding: '6px 10px',
+      minWidth: '70px'
+    },
+    routeProtocolLabel: {
+      fontSize: '9px'
+    },
+    routeProtocolName: {
+      fontSize: '11px'
+    },
+    routeProtocolFee: {
+      fontSize: '8px'
+    },
+    routeArrow: {
+      fontSize: '16px'
     }
   } : {};
 
     return (
     <div style={styles.pageContainer}>
       {/* Header */}
-      <header style={getStyle(styles.header, mobileOverrides.header)}>
+      <header style={{ ...getStyle(styles.header, mobileOverrides.header), opacity: headerOpacity, transition: 'opacity 0.2s ease-out' }}>
         <div style={getStyle(styles.headerLeft, mobileOverrides.headerLeft)}>
           <div style={getStyle(styles.logo, mobileOverrides.logo)}>
             <img src={swaphubLogo} alt="SwapHub" style={getStyle(styles.logoImage, mobileOverrides.logoImage)} />
@@ -2256,6 +2301,62 @@ export default function SwapInterface() {
           </div>
         </div>
 
+        {/* Route Visualization */}
+        {parseFloat(amountOut) > 0 && !noLiquidityError && !isWrapOperation && (
+          <div style={styles.routeContainer}>
+            {/* Input Token */}
+            <div style={styles.routeToken}>
+              <div style={styles.routeTokenIcon}>
+                {tokenIn.logoURI ? (
+                  <img 
+                    src={tokenIn.logoURI} 
+                    alt={tokenIn.symbol} 
+                    style={{ width: '28px', height: '28px', borderRadius: '50%' }}
+                  />
+                ) : (
+                  <span style={{ fontSize: '14px' }}>🪙</span>
+                )}
+              </div>
+              <div style={styles.routeTokenSymbol}>{tokenIn.symbol}</div>
+            </div>
+            
+            {/* Arrow */}
+            <div style={styles.routeArrow}>→</div>
+            
+            {/* Protocol */}
+            <div style={styles.routeProtocol}>
+              <div style={styles.routeProtocolLabel}>Via</div>
+              <div style={styles.routeProtocolName}>
+                Uniswap {selectedProtocol.toUpperCase()}
+              </div>
+              {selectedProtocol === 'v3' && selectedFeeTier && (
+                <div style={styles.routeProtocolFee}>
+                  Fee: {selectedFeeTier / 10000}%
+                </div>
+              )}
+            </div>
+            
+            {/* Arrow */}
+            <div style={styles.routeArrow}>→</div>
+            
+            {/* Output Token */}
+            <div style={styles.routeToken}>
+              <div style={styles.routeTokenIcon}>
+                {tokenOut.logoURI ? (
+                  <img 
+                    src={tokenOut.logoURI} 
+                    alt={tokenOut.symbol} 
+                    style={{ width: '28px', height: '28px', borderRadius: '50%' }}
+                  />
+                ) : (
+                  <span style={{ fontSize: '14px' }}>🪙</span>
+                )}
+              </div>
+              <div style={styles.routeTokenSymbol}>{tokenOut.symbol}</div>
+            </div>
+          </div>
+        )}
+
         {/* Swap Button */}
         <button
           onClick={
@@ -2291,19 +2392,13 @@ export default function SwapInterface() {
           </div>
         )}
 
-        {/* Protocol Badge */}
+        {/* Protocol Badge - Sadece bilgilendirme amaçlı, sistem otomatik en iyi protokolü seçiyor */}
         {parseFloat(amountOut) > 0 && !noLiquidityError && (
           <div style={styles.protocolBadge}>
             via Uniswap {selectedProtocol.toUpperCase()}
-            {v3Available && v2Available && (
+            {selectedProtocol === 'v3' && selectedFeeTier && (
               <span style={styles.protocolOptions}>
-                {' '}• 
-                <button 
-                  onClick={() => setSelectedProtocol(selectedProtocol === 'v3' ? 'v2' : 'v3')}
-                  style={styles.switchProtocolBtn}
-                >
-                  Switch to {selectedProtocol === 'v3' ? 'V2' : 'V3'}
-                </button>
+                {' '}• Fee: {selectedFeeTier / 10000}%
               </span>
             )}
         </div>
@@ -2455,7 +2550,7 @@ export default function SwapInterface() {
                     style={{
                       ...styles.slippagePresetBtn,
                       backgroundColor: slippage === value ? 'transparent' : 'rgba(255,255,255,0.05)',
-                      background: slippage === value ? 'linear-gradient(135deg, #ff1cf7, #00d4ff)' : 'none',
+                      background: slippage === value ? '#00d4ff' : 'none',
                       color: slippage === value ? '#fff' : '#888',
                       border: slippage === value ? '1px solid transparent' : '1px solid rgba(255,255,255,0.1)'
                     }}
@@ -2506,7 +2601,7 @@ export default function SwapInterface() {
               style={styles.modalOverlay} 
               onClick={() => setShowStatistics(false)}
             />
-            <div style={getStyle({ ...styles.statisticsModal, position: 'relative' as const }, mobileOverrides.statisticsModal)}>
+            <div style={getStyle(styles.statisticsModal, mobileOverrides.statisticsModal)}>
           <button
                 onClick={() => setShowStatistics(false)} 
                 style={{
@@ -2824,17 +2919,19 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '12px 24px',
-    backgroundColor: '#000000',
-    borderBottom: '1px solid #1a1a1a',
+    padding: '8px 20px',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    backdropFilter: 'blur(10px)',
+    borderBottom: '1px solid rgba(26, 26, 26, 0.5)',
     position: 'sticky' as const,
     top: 0,
-    zIndex: 100
+    zIndex: 100,
+    transition: 'opacity 0.2s ease-out, background-color 0.2s ease-out'
   },
   headerLeft: {
     display: 'flex',
     alignItems: 'center',
-    gap: '32px'
+    gap: '24px'
   },
   logo: {
     display: 'flex',
@@ -2843,21 +2940,18 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer'
   },
   logoImage: {
-    width: '56px',
-    height: '56px',
+    width: '80px',
+    height: '80px',
     objectFit: 'contain',
     backgroundColor: 'transparent',
     background: 'none',
     mixBlendMode: 'normal',
-    filter: 'none'
+    filter: 'brightness(0) saturate(100%) invert(59%) sepia(96%) saturate(2086%) hue-rotate(157deg) brightness(103%) contrast(101%)'
   },
   logoText: {
     fontSize: '20px',
     fontWeight: 'bold',
-    background: 'linear-gradient(135deg, #ff1cf7, #00d4ff)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    backgroundClip: 'text',
+    color: '#00d4ff',
     letterSpacing: '-0.5px'
   },
   nav: {
@@ -2896,7 +2990,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
-    padding: '10px 16px',
+    padding: '8px 14px',
     backgroundColor: '#1a1a1a',
     borderRadius: '12px',
     border: '1px solid #333'
@@ -3000,7 +3094,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '6px',
     padding: '8px 16px',
-    background: 'linear-gradient(135deg, #ff1cf7, #00d4ff)',
+    background: '#00d4ff',
     border: 'none',
     borderRadius: '20px',
     color: '#ffffff',
@@ -3008,7 +3102,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: '600',
     cursor: 'pointer',
     transition: 'all 0.2s',
-    boxShadow: '0 2px 8px rgba(255, 28, 247, 0.3)'
+    boxShadow: '0 2px 8px rgba(0, 212, 255, 0.3)'
   },
   tokenIcon: {
     fontSize: '24px'
@@ -3053,10 +3147,10 @@ const styles: Record<string, React.CSSProperties> = {
     height: '24px',
     border: '3px solid rgba(255, 255, 255, 0.1)',
     borderTop: '3px solid',
-    borderTopColor: '#ff1cf7',
+    borderTopColor: '#00d4ff',
     borderRadius: '50%',
     animation: 'spin 1s linear infinite',
-    background: 'linear-gradient(135deg, rgba(255, 28, 247, 0.1), rgba(0, 212, 255, 0.1))'
+    background: 'rgba(0, 212, 255, 0.1)'
   },
   switchContainer: {
     display: 'flex',
@@ -3086,12 +3180,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: '600',
     borderRadius: '16px',
     border: 'none',
-    background: 'linear-gradient(135deg, #ff1cf7, #00d4ff)',
+    background: '#00d4ff',
     color: '#ffffff',
     cursor: 'pointer',
     marginTop: '8px',
     transition: 'all 0.2s',
-    boxShadow: '0 2px 8px rgba(255, 28, 247, 0.3)'
+    boxShadow: '0 2px 8px rgba(0, 212, 255, 0.3)'
   },
   infoBox: {
     marginTop: '8px',
@@ -3325,7 +3419,7 @@ const styles: Record<string, React.CSSProperties> = {
   toastButton: {
     marginTop: '8px',
     padding: '14px 36px',
-    background: 'linear-gradient(135deg, #ff1cf7, #00d4ff)',
+    background: '#00d4ff',
     border: 'none',
     borderRadius: '14px',
     color: '#ffffff',
@@ -3333,7 +3427,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: '600',
     cursor: 'pointer',
     transition: 'all 0.2s',
-    boxShadow: '0 4px 16px rgba(255, 28, 247, 0.4)'
+    boxShadow: '0 4px 16px rgba(0, 212, 255, 0.4)'
   },
   toastLink: {
     marginTop: '8px',
@@ -3387,7 +3481,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: '16px',
     height: '16px',
     border: '2px solid #333',
-    borderTop: '2px solid #ffa500',
+    borderTop: '2px solid #00d4ff',
     borderRadius: '50%',
     animation: 'spin 1s linear infinite'
   },
@@ -3396,10 +3490,7 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'center'
   },
   txLink: {
-    background: 'linear-gradient(135deg, #ff1cf7, #00d4ff)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    backgroundClip: 'text',
+    color: '#00d4ff',
     textDecoration: 'none',
     fontSize: '14px',
     fontWeight: 'bold',
@@ -3669,7 +3760,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   importButton: {
     padding: '10px 20px',
-    background: 'linear-gradient(135deg, #ff1cf7, #00d4ff)',
+    background: '#00d4ff',
     border: 'none',
     borderRadius: '12px',
     color: '#ffffff',
@@ -3677,7 +3768,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: '600',
     cursor: 'pointer',
     transition: 'all 0.2s',
-    boxShadow: '0 2px 8px rgba(255, 28, 247, 0.3)'
+    boxShadow: '0 2px 8px rgba(0, 212, 255, 0.3)'
   },
   // Import Warning styles
   importWarning: {
@@ -3805,13 +3896,79 @@ const styles: Record<string, React.CSSProperties> = {
   switchProtocolBtn: {
     background: 'none',
     border: 'none',
-    backgroundImage: 'linear-gradient(135deg, #ff1cf7, #00d4ff)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    backgroundClip: 'text',
+    color: '#00d4ff',
     fontSize: '13px',
     cursor: 'pointer',
     padding: 0,
     textDecoration: 'underline'
+  },
+  // Route Visualization
+  routeContainer: {
+    marginTop: '12px',
+    marginBottom: '8px',
+    padding: '12px',
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    borderRadius: '12px',
+    border: '1px solid rgba(255, 255, 255, 0.05)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '12px',
+    minHeight: '60px'
+  },
+  routeToken: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    gap: '6px',
+    minWidth: '60px'
+  },
+  routeTokenIcon: {
+    width: '32px',
+    height: '32px',
+    borderRadius: '50%',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: '1px solid rgba(255, 255, 255, 0.1)'
+  },
+  routeTokenSymbol: {
+    fontSize: '11px',
+    color: '#888',
+    fontWeight: '500'
+  },
+  routeArrow: {
+    fontSize: '18px',
+    color: '#666',
+    display: 'flex',
+    alignItems: 'center'
+  },
+  routeProtocol: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    gap: '4px',
+    padding: '8px 14px',
+    backgroundColor: 'rgba(0, 212, 255, 0.1)',
+    borderRadius: '8px',
+    border: '1px solid rgba(0, 212, 255, 0.2)',
+    minWidth: '80px'
+  },
+  routeProtocolLabel: {
+    fontSize: '10px',
+    color: '#aaa',
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.5px'
+  },
+  routeProtocolName: {
+    fontSize: '13px',
+    fontWeight: '600',
+    color: '#00d4ff'
+  },
+  routeProtocolFee: {
+    fontSize: '9px',
+    color: '#666',
+    marginTop: '2px'
   }
 };
