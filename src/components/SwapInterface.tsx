@@ -119,7 +119,24 @@ function calculateUsdValue(
 // Smart number formatting - reduces unnecessary decimals
 function formatNumber(value: number, maxDecimals: number = 4): string {
   if (value === 0) return '0';
-  if (value < 0.0001) return value.toExponential(2);
+  
+  // For very small values, show more decimals instead of scientific notation
+  if (value < 0.0001) {
+    // Find the first significant digit
+    if (value < 0.00000001) {
+      // For extremely small values, show up to 8 decimals
+      const formatted = value.toFixed(8);
+      return parseFloat(formatted).toString();
+    } else if (value < 0.000001) {
+      // For very small values, show up to 6 decimals
+      const formatted = value.toFixed(6);
+      return parseFloat(formatted).toString();
+    } else {
+      // For small values, show up to 4 decimals
+      const formatted = value.toFixed(4);
+      return parseFloat(formatted).toString();
+    }
+  }
   
   // For values >= 1, use max 2 decimals
   if (value >= 1) {
