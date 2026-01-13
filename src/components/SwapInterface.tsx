@@ -3,7 +3,7 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadCont
 import { parseUnits, formatUnits, maxUint256 } from 'viem';
 import { base } from 'wagmi/chains';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { DEFAULT_TOKENS, POPULAR_TOKENS, FEE_TIERS, searchTokens, getAllTokens, saveCustomToken, removeCustomToken, getTokenByAddress, BASE_CHAIN_ID, type AppToken } from '../config/tokens';
+import { DEFAULT_TOKENS, FEE_TIERS, searchTokens, getAllTokens, saveCustomToken, removeCustomToken, getTokenByAddress, BASE_CHAIN_ID, type AppToken } from '../config/tokens';
 import { Token } from '@uniswap/sdk-core';
 import StatsPanel from './StatsPanel';
 import swaphubLogo from '../assets/swaphub-logo.png';
@@ -365,6 +365,177 @@ function CustomTokenItemWithRemove({
         ×
       </button>
     </div>
+  );
+}
+
+// Component to render token list sorted by balance
+function TokenListSortedByBalance({
+  tokens,
+  tokenIn,
+  tokenOut,
+  showTokenSelect,
+  onTokenSelect,
+  ethPrice,
+  address,
+  tokenSearchQuery,
+  isLoadingCustomToken,
+  customTokenError,
+  customTokens,
+  onRemoveCustomToken
+}: {
+  tokens: AppToken[];
+  tokenIn: AppToken;
+  tokenOut: AppToken;
+  showTokenSelect: 'in' | 'out' | null;
+  onTokenSelect: (token: AppToken, side: 'in' | 'out') => void;
+  ethPrice: number;
+  address: `0x${string}` | undefined;
+  tokenSearchQuery: string;
+  isLoadingCustomToken: boolean;
+  customTokenError: string | null;
+  customTokens: Record<string, AppToken>;
+  onRemoveCustomToken: (token: AppToken) => void;
+}) {
+  // Filter tokens first
+  const filteredTokens = tokens.filter(token => {
+    const isCurrentToken = showTokenSelect === 'in' 
+      ? token.symbol === tokenIn.symbol 
+      : token.symbol === tokenOut.symbol;
+    return !isCurrentToken;
+  });
+
+  // Check if a token is a custom token
+  const isCustomToken = (token: AppToken) => {
+    return customTokens[token.symbol] !== undefined;
+  };
+
+  // Sort tokens: those with balance first (we'll use a simple approach)
+  // Since we can't easily sort by balance without fetching all, we'll render all
+  // and let TokenListItem show the balance. The "Your Tokens" section already shows
+  // tokens with balance separately.
+  
+  return (
+    <div style={styles.tokenList}>
+      {filteredTokens.map((token) => {
+        const isOtherToken = showTokenSelect === 'in'
+          ? token.symbol === tokenOut.symbol
+          : token.symbol === tokenIn.symbol;
+
+        // If it's a custom token, show with remove button
+        if (isCustomToken(token)) {
+          const handleRemove = (e: React.MouseEvent) => {
+            e.stopPropagation(); // Prevent token selection when clicking remove
+            onRemoveCustomToken(token);
+          };
+
+          return (
+            <CustomTokenItemWithRemove
+              key={`custom-${token.symbol}`}
+              token={token}
+              isOtherToken={isOtherToken}
+              onSelect={() => onTokenSelect(token, showTokenSelect!)}
+              onRemove={handleRemove}
+              ethPrice={ethPrice}
+            />
+          );
+        }
+
+        // Regular token
+        return (
+          <TokenListItem
+            key={token.symbol}
+            token={token}
+            isDisabled={isOtherToken}
+            onClick={() => onTokenSelect(token, showTokenSelect!)}
+            ethPrice={ethPrice}
+          />
+        );
+      })}
+
+      {/* Import Token hint when searching with address */}
+      {tokenSearchQuery && /^0x[a-fA-F0-9]{40}$/.test(tokenSearchQuery) && !isLoadingCustomToken && !customTokenError && (
+        <div style={styles.importTokenHint}>
+          <span>⏳ Searching for token...</span>
+        </div>
+      )}
+
+      {/* No results message */}
+      {tokenSearchQuery && searchTokens(tokenSearchQuery).length === 0 && !/^0x[a-fA-F0-9]{40}$/.test(tokenSearchQuery) && (
+        <div style={styles.noResults}>
+          <span>No tokens found. Try pasting a token address.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Component to render token list item that only shows if balance > 0
+function TokenListItemWithBalance({ token, onClick, isDisabled, ethPrice }: TokenListItemProps) {
+  const { address } = useAccount();
+  const { data: balance } = useBalance({
+    address: address,
+    token: token.isNative ? undefined : (token.address as `0x${string}`),
+    chainId: base.id
+  });
+
+  const balanceFormatted = balance 
+    ? parseFloat(formatUnits(balance.value, balance.decimals))
+    : 0;
+
+  // Only render if balance > 0
+  if (balanceFormatted === 0) return null;
+
+  const getUsdValue = () => {
+    if (!balance || balanceFormatted === 0) return null;
+    
+    if (token.symbol === 'ETH' || token.symbol === 'WETH' || token.symbol === 'cbETH') {
+      return formatNumber(balanceFormatted * ethPrice, 2);
+    }
+    if (token.symbol === 'USDC' || token.symbol === 'USDT' || token.symbol === 'USDbC' || token.symbol === 'DAI') {
+      return formatNumber(balanceFormatted, 2);
+    }
+    return null;
+  };
+
+  const usdValue = getUsdValue();
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={isDisabled}
+      style={{
+        ...tokenListItemStyles.container,
+        opacity: isDisabled ? 0.5 : 1,
+        cursor: isDisabled ? 'not-allowed' : 'pointer'
+      }}
+    >
+      <div style={tokenListItemStyles.left}>
+        {token.logoURI ? (
+          <img 
+            src={token.logoURI} 
+            alt={token.symbol} 
+            style={tokenListItemStyles.logo}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        ) : (
+          <div style={tokenListItemStyles.logoPlaceholder}>
+            {token.symbol.charAt(0)}
+          </div>
+        )}
+        <div style={tokenListItemStyles.info}>
+          <div style={tokenListItemStyles.symbol}>{token.symbol}</div>
+          <div style={tokenListItemStyles.name}>{token.name}</div>
+        </div>
+      </div>
+      <div style={tokenListItemStyles.right}>
+        {usdValue && <div style={tokenListItemStyles.usdValue}>${usdValue}</div>}
+        <div style={tokenListItemStyles.balance}>
+          {formatNumber(balanceFormatted)}
+        </div>
+      </div>
+    </button>
   );
 }
 
@@ -2689,29 +2860,6 @@ export default function SwapInterface() {
                 autoFocus
               />
 
-              {/* Popular Tokens */}
-              {!tokenSearchQuery && (
-                <div style={styles.popularTokens}>
-                  <div style={styles.popularLabel}>Popular</div>
-                  <div style={styles.popularList}>
-                    {POPULAR_TOKENS.map(symbol => {
-                      const token = DEFAULT_TOKENS[symbol];
-                      return (
-                        <button
-                          key={symbol}
-                          onClick={() => handleTokenSelect(token, showTokenSelect!)}
-                          style={getStyle(styles.popularToken, mobileOverrides.popularToken)}
-                        >
-                          {token.logoURI && (
-                            <img src={token.logoURI} alt={token.symbol} style={getStyle(styles.tokenLogo, mobileOverrides.tokenLogo)} />
-                          )}
-                          {token.symbol}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
 
               {/* Loading Custom Token */}
               {isLoadingCustomToken && (
@@ -2816,89 +2964,65 @@ export default function SwapInterface() {
           </div>
         )}
 
-              {/* Custom Tokens Section */}
-              {Object.keys(customTokens).length > 0 && !tokenSearchQuery && (
+              {/* Your Tokens - All tokens with balance (popular + custom + others) */}
+              {address && !tokenSearchQuery && (
                 <>
-                  <div style={getStyle(styles.sectionTitle, mobileOverrides.sectionTitle)}>Custom tokens</div>
-                  <div style={{ ...styles.tokenList, maxHeight: '400px' }}>
-                    {Object.values(customTokens).map((token) => {
-                      const isCurrentToken = showTokenSelect === 'in' 
-                        ? token.symbol === tokenIn.symbol 
-                        : token.symbol === tokenOut.symbol;
-                      
-                      const isOtherToken = showTokenSelect === 'in'
-                        ? token.symbol === tokenOut.symbol
-                        : token.symbol === tokenIn.symbol;
+                  <div style={getStyle(styles.sectionTitle, mobileOverrides.sectionTitle)}>Your Tokens</div>
+                  <div style={styles.tokenList}>
+                    {(Object.values(DEFAULT_TOKENS).concat(Object.values(customTokens)))
+                      .filter(token => {
+                        const isCurrentToken = showTokenSelect === 'in' 
+                          ? token.symbol === tokenIn.symbol 
+                          : token.symbol === tokenOut.symbol;
+                        return !isCurrentToken;
+                      })
+                      .map((token) => {
+                        const isOtherToken = showTokenSelect === 'in'
+                          ? token.symbol === tokenOut.symbol
+                          : token.symbol === tokenIn.symbol;
 
-                      if (isCurrentToken) return null;
-
-                      const handleRemove = (e: React.MouseEvent) => {
-                        e.stopPropagation(); // Prevent token selection when clicking remove
-                        removeCustomToken(token.symbol);
-                        setCustomTokens(prev => {
-                          const updated = { ...prev };
-                          delete updated[token.symbol];
-                          return updated;
-                        });
-                      };
-
-                      return (
-                        <CustomTokenItemWithRemove
-                          key={`custom-${token.symbol}`}
-                          token={token}
-                          isOtherToken={isOtherToken}
-                          onSelect={() => handleTokenSelect(token, showTokenSelect!)}
-                          onRemove={handleRemove}
-                          ethPrice={ethPriceUsd}
-                        />
-                      );
-                    })}
+                        return (
+                          <TokenListItemWithBalance
+                            key={token.symbol}
+                            token={token}
+                            isDisabled={isOtherToken}
+                            onClick={() => handleTokenSelect(token, showTokenSelect!)}
+                            ethPrice={ethPriceUsd}
+                          />
+                        );
+                      })
+                      .filter(item => item !== null)}
                   </div>
                 </>
               )}
 
-              {/* Your Tokens Header */}
-              <div style={getStyle(styles.sectionTitle, mobileOverrides.sectionTitle)}>Popular tokens</div>
-              
-              {/* Token List */}
-              <div style={styles.tokenList}>
-                {(tokenSearchQuery ? searchTokens(tokenSearchQuery) : Object.values(DEFAULT_TOKENS))
-                  .map((token) => {
-                    const isCurrentToken = showTokenSelect === 'in' 
-                      ? token.symbol === tokenIn.symbol 
-                      : token.symbol === tokenOut.symbol;
-                    
-                    const isOtherToken = showTokenSelect === 'in'
-                      ? token.symbol === tokenOut.symbol
-                      : token.symbol === tokenIn.symbol;
-
-                    if (isCurrentToken) return null;
-
-                    return (
-                      <TokenListItem
-                        key={token.symbol}
-                        token={token}
-                        isDisabled={isOtherToken}
-                        onClick={() => handleTokenSelect(token, showTokenSelect!)}
-                        ethPrice={ethPriceUsd}
-                      />
-                    );
-                  })}
-
-                {/* Import Token hint when searching with address */}
-                {tokenSearchQuery && /^0x[a-fA-F0-9]{40}$/.test(tokenSearchQuery) && !isLoadingCustomToken && !customTokenError && (
-                  <div style={styles.importTokenHint}>
-                    <span>⏳ Searching for token...</span>
-                  </div>
-                )}
-
-                {/* No results message */}
-                {tokenSearchQuery && searchTokens(tokenSearchQuery).length === 0 && !/^0x[a-fA-F0-9]{40}$/.test(tokenSearchQuery) && (
-                  <div style={styles.noResults}>
-                    <span>No tokens found. Try pasting a token address.</span>
-                  </div>
-                )}
+              {/* All Tokens Header */}
+              <div style={getStyle(styles.sectionTitle, mobileOverrides.sectionTitle)}>
+                {address && !tokenSearchQuery ? 'All Tokens' : 'Tokens'}
               </div>
+              
+              {/* Token List - Sorted by balance (tokens with balance first) */}
+              <TokenListSortedByBalance
+                tokens={tokenSearchQuery ? searchTokens(tokenSearchQuery) : Object.values(DEFAULT_TOKENS).concat(Object.values(customTokens))}
+                tokenIn={tokenIn}
+                tokenOut={tokenOut}
+                showTokenSelect={showTokenSelect}
+                onTokenSelect={handleTokenSelect}
+                ethPrice={ethPriceUsd}
+                address={address}
+                tokenSearchQuery={tokenSearchQuery}
+                isLoadingCustomToken={isLoadingCustomToken}
+                customTokenError={customTokenError}
+                customTokens={customTokens}
+                onRemoveCustomToken={(token) => {
+                  removeCustomToken(token.symbol);
+                  setCustomTokens(prev => {
+                    const updated = { ...prev };
+                    delete updated[token.symbol];
+                    return updated;
+                  });
+                }}
+              />
             </div>
           </div>
         )}
