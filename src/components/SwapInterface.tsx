@@ -413,9 +413,6 @@ function TokenListSortedByBalance({
   customTokens: Record<string, AppToken>;
   onRemoveCustomToken: (token: AppToken) => void;
 }) {
-  // Popular tokens that should appear at the top
-  const POPULAR_TOKENS = ['ETH', 'USDC', 'USDT', 'AERO'];
-  
   // Filter tokens first
   const filteredTokens = tokens.filter(token => {
     const isCurrentToken = showTokenSelect === 'in' 
@@ -429,28 +426,68 @@ function TokenListSortedByBalance({
     return customTokens[token.symbol] !== undefined;
   };
 
-  // Check if a token is popular
-  const isPopularToken = (token: AppToken) => {
-    return POPULAR_TOKENS.includes(token.symbol);
-  };
+  // Filter out popular tokens from the list (they're shown in Popular section)
+  const POPULAR_TOKENS = ['ETH', 'USDC', 'USDT', 'AERO'];
+  const tokensWithoutPopular = filteredTokens.filter(token => !POPULAR_TOKENS.includes(token.symbol));
+  
+  // Fetch balances for all tokens to sort by balance
+  const [tokenBalances, setTokenBalances] = useState<Record<string, number>>({});
+  const publicClient = usePublicClient();
 
-  // Sort tokens: popular first, then by balance, then others
-  const sortedTokens = [...filteredTokens].sort((a, b) => {
-    // Popular tokens first
-    const aIsPopular = isPopularToken(a);
-    const bIsPopular = isPopularToken(b);
-    if (aIsPopular && !bIsPopular) return -1;
-    if (!aIsPopular && bIsPopular) return 1;
-    
-    // Within popular tokens, maintain order (ETH, USDC, USDT, AERO)
-    if (aIsPopular && bIsPopular) {
-      const aIndex = POPULAR_TOKENS.indexOf(a.symbol);
-      const bIndex = POPULAR_TOKENS.indexOf(b.symbol);
-      return aIndex - bIndex;
+  useEffect(() => {
+    if (!address || !publicClient || tokenSearchQuery) {
+      setTokenBalances({});
+      return;
     }
-    
-    // For non-popular tokens, we'll sort by balance if available
-    // (balance sorting will be handled by TokenListItem component)
+
+    const fetchBalances = async () => {
+      const balances: Record<string, number> = {};
+      
+      for (const token of tokensWithoutPopular) {
+        try {
+          let balance = BigInt(0);
+          if (token.isNative) {
+            balance = await publicClient.getBalance({ address });
+          } else {
+            const erc20Abi = [
+              {
+                inputs: [{ name: 'account', type: 'address' }],
+                name: 'balanceOf',
+                outputs: [{ name: '', type: 'uint256' }],
+                stateMutability: 'view',
+                type: 'function'
+              }
+            ] as const;
+            balance = await publicClient.readContract({
+              address: token.address as `0x${string}`,
+              abi: erc20Abi,
+              functionName: 'balanceOf',
+              args: [address]
+            });
+          }
+          
+          const balanceFormatted = parseFloat(formatUnits(balance, token.decimals));
+          balances[token.symbol] = balanceFormatted;
+        } catch (error) {
+          balances[token.symbol] = 0;
+        }
+      }
+      
+      setTokenBalances(balances);
+    };
+
+    fetchBalances();
+  }, [address, tokensWithoutPopular.length, publicClient, tokenSearchQuery]);
+
+  // Sort tokens: those with balance first
+  const sortedTokens = [...tokensWithoutPopular].sort((a, b) => {
+    if (address) {
+      const balanceA = tokenBalances[a.symbol] || 0;
+      const balanceB = tokenBalances[b.symbol] || 0;
+      if (balanceA > 0 && balanceB === 0) return -1; // Tokens with balance first
+      if (balanceA === 0 && balanceB > 0) return 1;
+      if (balanceA > 0 && balanceB > 0) return balanceB - balanceA; // Higher balance first
+    }
     return 0;
   });
   
@@ -3004,7 +3041,32 @@ export default function SwapInterface() {
           </div>
         )}
 
-              {/* Token List - Popular tokens first, then sorted by balance */}
+              {/* Popular Tokens */}
+              {!tokenSearchQuery && (
+                <div style={styles.popularTokens}>
+                  <div style={styles.popularLabel}>Popular</div>
+                  <div style={styles.popularList}>
+                    {['ETH', 'USDC', 'USDT', 'AERO'].map(symbol => {
+                      const token = DEFAULT_TOKENS[symbol];
+                      if (!token) return null;
+                      return (
+                        <button
+                          key={symbol}
+                          onClick={() => handleTokenSelect(token, showTokenSelect!)}
+                          style={getStyle(styles.popularToken, mobileOverrides.popularToken)}
+                        >
+                          {token.logoURI && (
+                            <img src={token.logoURI} alt={token.symbol} style={getStyle(styles.tokenLogo, mobileOverrides.tokenLogo)} />
+                          )}
+                          {token.symbol}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Token List - Sorted by balance (tokens with balance first) */}
               <TokenListSortedByBalance
                 tokens={tokenSearchQuery ? searchTokens(tokenSearchQuery) : Object.values(DEFAULT_TOKENS).concat(Object.values(customTokens))}
                 tokenIn={tokenIn}
