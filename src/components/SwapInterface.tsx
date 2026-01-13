@@ -413,6 +413,9 @@ function TokenListSortedByBalance({
   customTokens: Record<string, AppToken>;
   onRemoveCustomToken: (token: AppToken) => void;
 }) {
+  // Popular tokens that should appear at the top
+  const POPULAR_TOKENS = ['ETH', 'USDC', 'USDT', 'AERO'];
+  
   // Filter tokens first
   const filteredTokens = tokens.filter(token => {
     const isCurrentToken = showTokenSelect === 'in' 
@@ -426,14 +429,34 @@ function TokenListSortedByBalance({
     return customTokens[token.symbol] !== undefined;
   };
 
-  // Sort tokens: those with balance first (we'll use a simple approach)
-  // Since we can't easily sort by balance without fetching all, we'll render all
-  // and let TokenListItem show the balance. The "Your Tokens" section already shows
-  // tokens with balance separately.
+  // Check if a token is popular
+  const isPopularToken = (token: AppToken) => {
+    return POPULAR_TOKENS.includes(token.symbol);
+  };
+
+  // Sort tokens: popular first, then by balance, then others
+  const sortedTokens = [...filteredTokens].sort((a, b) => {
+    // Popular tokens first
+    const aIsPopular = isPopularToken(a);
+    const bIsPopular = isPopularToken(b);
+    if (aIsPopular && !bIsPopular) return -1;
+    if (!aIsPopular && bIsPopular) return 1;
+    
+    // Within popular tokens, maintain order (ETH, USDC, USDT, AERO)
+    if (aIsPopular && bIsPopular) {
+      const aIndex = POPULAR_TOKENS.indexOf(a.symbol);
+      const bIndex = POPULAR_TOKENS.indexOf(b.symbol);
+      return aIndex - bIndex;
+    }
+    
+    // For non-popular tokens, we'll sort by balance if available
+    // (balance sorting will be handled by TokenListItem component)
+    return 0;
+  });
   
   return (
     <div style={styles.tokenList}>
-      {filteredTokens.map((token) => {
+      {sortedTokens.map((token) => {
         const isOtherToken = showTokenSelect === 'in'
           ? token.symbol === tokenOut.symbol
           : token.symbol === tokenIn.symbol;
@@ -2981,44 +3004,7 @@ export default function SwapInterface() {
           </div>
         )}
 
-              {/* Your Tokens - All tokens with balance (popular + custom + others) */}
-              {address && !tokenSearchQuery && (
-                <>
-                  <div style={getStyle(styles.sectionTitle, mobileOverrides.sectionTitle)}>Your Tokens</div>
-                  <div style={styles.tokenList}>
-                    {(Object.values(DEFAULT_TOKENS).concat(Object.values(customTokens)))
-                      .filter(token => {
-                        const isCurrentToken = showTokenSelect === 'in' 
-                          ? token.symbol === tokenIn.symbol 
-                          : token.symbol === tokenOut.symbol;
-                        return !isCurrentToken;
-                      })
-                      .map((token) => {
-                        const isOtherToken = showTokenSelect === 'in'
-                          ? token.symbol === tokenOut.symbol
-                          : token.symbol === tokenIn.symbol;
-
-                        return (
-                          <TokenListItemWithBalance
-                            key={token.symbol}
-                            token={token}
-                            isDisabled={isOtherToken}
-                            onClick={() => handleTokenSelect(token, showTokenSelect!)}
-                            ethPrice={ethPriceUsd}
-                          />
-                        );
-                      })
-                      .filter(item => item !== null)}
-                  </div>
-                </>
-              )}
-
-              {/* All Tokens Header */}
-              <div style={getStyle(styles.sectionTitle, mobileOverrides.sectionTitle)}>
-                {address && !tokenSearchQuery ? 'All Tokens' : 'Tokens'}
-              </div>
-              
-              {/* Token List - Sorted by balance (tokens with balance first) */}
+              {/* Token List - Popular tokens first, then sorted by balance */}
               <TokenListSortedByBalance
                 tokens={tokenSearchQuery ? searchTokens(tokenSearchQuery) : Object.values(DEFAULT_TOKENS).concat(Object.values(customTokens))}
                 tokenIn={tokenIn}
