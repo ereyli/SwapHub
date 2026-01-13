@@ -2946,7 +2946,7 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: 'transparent',
     background: 'none',
     mixBlendMode: 'normal',
-    filter: 'brightness(0) saturate(100%) invert(59%) sepia(96%) saturate(2086%) hue-rotate(157deg) brightness(103%) contrast(101%)'
+    filter: 'none'
   },
   logoText: {
     fontSize: '20px',
