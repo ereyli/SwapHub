@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, useBalance, usePublicClient } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract, useBalance, usePublicClient, useWalletClient, useConfig } from 'wagmi';
 import { parseUnits, formatUnits, maxUint256 } from 'viem';
-import { base } from 'wagmi/chains';
+import { base, mainnet } from 'wagmi/chains';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { DEFAULT_TOKENS, FEE_TIERS, searchTokens, getAllTokens, saveCustomToken, removeCustomToken, getTokenByAddress, BASE_CHAIN_ID, type AppToken } from '../config/tokens';
 import { Token } from '@uniswap/sdk-core';
 import StatsPanel from './StatsPanel';
 import swaphubLogo from '../assets/swaphub-logo.png';
+import { getRoutes, executeRoute, ChainId, type Route, EVM, config, getTokens, getChains } from '@lifi/sdk';
+import { getWalletClient, switchChain } from '@wagmi/core';
+import { SUPPORTED_CHAINS, NATIVE_TOKEN_ADDRESS, CHAIN_ID_MAPPING, REVERSE_CHAIN_ID_MAPPING } from '../config/lifi';
 
 // ETH price state - will be fetched from CoinGecko API
 let cachedEthPrice = 2950; // Default fallback price
@@ -261,6 +264,293 @@ async function fetchTokenLogo(address: string, symbol: string): Promise<string |
 
   console.warn('❌ No logo found for token:', symbol, address);
   return null;
+}
+
+// Cache for chain logos from LI.FI SDK
+let chainLogosCache: Record<number, string> | null = null;
+let chainLogosCachePromise: Promise<Record<number, string>> | null = null;
+
+// Fetch chain logos from LI.FI SDK
+async function fetchChainLogosFromLifi(): Promise<Record<number, string>> {
+  if (chainLogosCache) {
+    return chainLogosCache;
+  }
+  
+  if (chainLogosCachePromise) {
+    return chainLogosCachePromise;
+  }
+  
+  chainLogosCachePromise = (async () => {
+    try {
+      const chains = await getChains();
+      const logoMap: Record<number, string> = {};
+      
+      chains.forEach((chain: any) => {
+        if (chain.id && chain.logoURI) {
+          logoMap[chain.id] = chain.logoURI;
+        }
+      });
+      
+      chainLogosCache = logoMap;
+      return logoMap;
+    } catch (error) {
+      console.warn('Failed to fetch chain logos from LI.FI SDK:', error);
+      return {};
+    }
+  })();
+  
+  return chainLogosCachePromise;
+}
+
+// Cache for token logos from LI.FI SDK (chainId -> token address -> logoURI)
+let tokenLogosCache: Record<number, Record<string, string>> = {};
+let tokenLogosCachePromises: Record<number, Promise<Record<string, string>>> = {};
+
+// Fetch token logos from LI.FI SDK for a specific chain
+async function fetchTokenLogosFromLifi(chainId: number): Promise<Record<string, string>> {
+  if (tokenLogosCache[chainId]) {
+    return tokenLogosCache[chainId];
+  }
+  
+  if (tokenLogosCachePromises[chainId]) {
+    return await tokenLogosCachePromises[chainId];
+  }
+  
+  tokenLogosCachePromises[chainId] = (async () => {
+    try {
+      const tokensResult = await getTokens({ chains: [chainId] });
+      const logoMap: Record<string, string> = {};
+      
+      const chainTokens = tokensResult.tokens[chainId] || [];
+      chainTokens.forEach((token: any) => {
+        if (token.address && token.logoURI) {
+          logoMap[token.address.toLowerCase()] = token.logoURI;
+        }
+      });
+      
+      tokenLogosCache[chainId] = logoMap;
+      return logoMap;
+    } catch (error) {
+      console.warn(`Failed to fetch token logos from LI.FI SDK for chain ${chainId}:`, error);
+      return {};
+    }
+  })();
+  
+  return tokenLogosCachePromises[chainId];
+}
+
+// Get token logo URI from LI.FI SDK cache
+async function getTokenLogoFromLifi(chainId: number, tokenAddress: string): Promise<string | null> {
+  const cache = await fetchTokenLogosFromLifi(chainId);
+  return cache[tokenAddress.toLowerCase()] || null;
+}
+
+// Token Logo Component for bridge tokens (fetches from LI.FI SDK)
+function BridgeTokenLogo({ token, chainId, size = 24, style }: { token: AppToken; chainId: number; size?: number; style?: React.CSSProperties }) {
+  const [imgSrc, setImgSrc] = useState<string>('');
+  const [lifiLogo, setLifiLogo] = useState<string | null>(null);
+  
+  // Fetch logo from LI.FI SDK
+  useEffect(() => {
+    if (token.address && token.address !== NATIVE_TOKEN_ADDRESS) {
+      getTokenLogoFromLifi(chainId, token.address).then((logo) => {
+        if (logo) {
+          setLifiLogo(logo);
+        }
+      });
+    } else {
+      // For native tokens, try to get from native token list
+      fetchTokenLogosFromLifi(chainId).then((cache) => {
+        // Try to find native token logo
+        const nativeTokenLogo = cache[NATIVE_TOKEN_ADDRESS.toLowerCase()];
+        if (nativeTokenLogo) {
+          setLifiLogo(nativeTokenLogo);
+        }
+      });
+    }
+  }, [token.address, chainId]);
+  
+  useEffect(() => {
+    // Priority: 1. LI.FI SDK logo, 2. Fallback token.logoURI
+    if (lifiLogo) {
+      setImgSrc(lifiLogo);
+    } else if (token.logoURI) {
+      setImgSrc(token.logoURI);
+    }
+  }, [lifiLogo, token.logoURI]);
+  
+  if (!imgSrc) {
+    // Placeholder - show first letter of token symbol
+    return (
+      <div 
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius: '50%',
+          backgroundColor: 'rgba(0, 212, 255, 0.2)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: `${size * 0.6}px`,
+          color: '#00d4ff',
+          fontWeight: 'bold',
+          ...style
+        }}
+      >
+        {token.symbol.charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+  
+  return (
+    <img 
+      src={imgSrc}
+      alt={token.symbol}
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        borderRadius: '50%',
+        objectFit: 'contain',
+        ...style
+      }}
+      onError={() => {
+        // If LI.FI logo fails and we have fallback, try fallback
+        if (lifiLogo && token.logoURI && imgSrc === lifiLogo) {
+          setImgSrc(token.logoURI);
+        } else {
+          setImgSrc('');
+        }
+      }}
+    />
+  );
+}
+
+// Helper function to get chain logo URLs with fallbacks
+function getChainLogoUrls(lifiChainId: number): string[] {
+  const chainLogoMap: Record<number, string[]> = {
+    [ChainId.BAS]: [
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png',
+      'https://assets.coingecko.com/coins/images/27509/small/base.png'
+    ],
+    [ChainId.ETH]: [
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png',
+      'https://assets.coingecko.com/coins/images/279/small/ethereum.png'
+    ],
+    [ChainId.ARB]: [
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png',
+      'https://assets.coingecko.com/coins/images/16547/small/photo_2023-03-29_21.47.00.jpeg'
+    ],
+    [ChainId.OPT]: [
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/info/logo.png',
+      'https://assets.coingecko.com/coins/images/25244/small/Optimism.png'
+    ],
+    [ChainId.POL]: [
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png',
+      'https://assets.coingecko.com/coins/images/4713/small/matic-token-icon.png'
+    ],
+    [ChainId.BSC]: [
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png',
+      'https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png'
+    ],
+    [ChainId.AVA]: [
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/avalanchec/info/logo.png',
+      'https://assets.coingecko.com/coins/images/12559/small/avalanche-avax-logo.png'
+    ],
+    [ChainId.MNT]: [
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/mantle/info/logo.png'
+    ],
+    [ChainId.ERA]: [
+      'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/zksync/info/logo.png'
+    ],
+  };
+  return chainLogoMap[lifiChainId] || [];
+}
+
+// Chain Logo Component with fallback support
+function ChainLogo({ lifiChainId, size = 16, style }: { lifiChainId: number; size?: number; style?: React.CSSProperties }) {
+  const [currentSrcIndex, setCurrentSrcIndex] = useState(0);
+  const [imgSrc, setImgSrc] = useState<string>('');
+  const [lifiLogo, setLifiLogo] = useState<string | null>(null);
+  const logoUrls = getChainLogoUrls(lifiChainId);
+  
+  // Fetch logo from LI.FI SDK
+  useEffect(() => {
+    fetchChainLogosFromLifi().then((cache) => {
+      if (cache[lifiChainId]) {
+        setLifiLogo(cache[lifiChainId]);
+      }
+    });
+  }, [lifiChainId]);
+  
+  useEffect(() => {
+    // Priority: 1. LI.FI SDK logo, 2. Fallback URLs
+    if (lifiLogo) {
+      setImgSrc(lifiLogo);
+      setCurrentSrcIndex(-1); // -1 means using LI.FI logo
+    } else if (logoUrls.length > 0) {
+      setImgSrc(logoUrls[0]);
+      setCurrentSrcIndex(0);
+    }
+  }, [lifiChainId, logoUrls.length, lifiLogo]);
+  
+  const handleError = () => {
+    if (currentSrcIndex === -1 && lifiLogo) {
+      // LI.FI logo failed, try fallback URLs
+      if (logoUrls.length > 0) {
+        setCurrentSrcIndex(0);
+        setImgSrc(logoUrls[0]);
+      } else {
+        setImgSrc('');
+      }
+    } else if (currentSrcIndex >= 0 && currentSrcIndex < logoUrls.length - 1) {
+      // Try next fallback URL
+      const nextIndex = currentSrcIndex + 1;
+      setCurrentSrcIndex(nextIndex);
+      setImgSrc(logoUrls[nextIndex]);
+    } else {
+      // All URLs failed, show placeholder
+      setImgSrc('');
+    }
+  };
+  
+  if (!imgSrc) {
+    // Placeholder - show first letter of chain name
+    const chainName = SUPPORTED_CHAINS.find(c => c.lifiChainId === lifiChainId)?.name || '';
+    return (
+      <div 
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius: '50%',
+          backgroundColor: 'rgba(0, 212, 255, 0.2)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: `${size * 0.6}px`,
+          color: '#00d4ff',
+          fontWeight: 'bold',
+          ...style
+        }}
+      >
+        {chainName.charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+  
+  return (
+    <img 
+      src={imgSrc}
+      alt={SUPPORTED_CHAINS.find(c => c.lifiChainId === lifiChainId)?.name || ''}
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        borderRadius: '50%',
+        objectFit: 'contain',
+        ...style
+      }}
+      onError={handleError}
+    />
+  );
 }
 
 // Token item with balance display
@@ -765,17 +1055,40 @@ const tokenListItemStyles: Record<string, React.CSSProperties> = {
   }
 };
 
-// UNISWAP V3 - SwapRouter02
-const SWAP_ROUTER_02 = '0x2626664c2603336E57B271c5C0b26F421741e481';
-const WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
-const QUOTER_V2_ADDRESS = '0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a';
+// Contract addresses by chain
+const CONTRACT_ADDRESSES: Record<number, {
+  swapAggregator: string;
+  v2Factory: string;
+  v2Router: string;
+  v3Quoter: string;
+  v3Router: string;
+  weth: string;
+}> = {
+  [base.id]: {
+    swapAggregator: '0xbf579e68ba69de03ccec14476eb8d765ec558257',
+    v2Factory: '0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6',
+    v2Router: '0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24',
+    v3Quoter: '0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a',
+    v3Router: '0x2626664c2603336E57B271c5C0b26F421741e481',
+    weth: '0x4200000000000000000000000000000000000006'
+  },
+  [mainnet.id]: {
+    swapAggregator: '0xcaa2a1fb271ae0a04415654e62fb26bdd1adac64',
+    v2Factory: '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f',
+    v2Router: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D',
+    v3Quoter: '0xb27308f9F90D607463bb3eA9aeC94B2C3b3b3C3b3',
+    v3Router: '0xE592427A0AEce92De3Edee1F18E0157C05861564',
+    weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
+  }
+};
 
-// UNISWAP V2 - Router02 on Base
-const UNISWAP_V2_ROUTER = '0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24';
-const UNISWAP_V2_FACTORY = '0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6';
-
-// OUR SWAP AGGREGATOR V2 (Native ETH Support + Output-Fee Model + Deadline Protection)
-const SWAP_AGGREGATOR = '0xbf579e68ba69de03ccec14476eb8d765ec558257';
+// Legacy constants for backward compatibility (Base only)
+const SWAP_ROUTER_02 = CONTRACT_ADDRESSES[base.id].v3Router;
+const WETH_ADDRESS = CONTRACT_ADDRESSES[base.id].weth;
+const QUOTER_V2_ADDRESS = CONTRACT_ADDRESSES[base.id].v3Quoter;
+const UNISWAP_V2_ROUTER = CONTRACT_ADDRESSES[base.id].v2Router;
+const UNISWAP_V2_FACTORY = CONTRACT_ADDRESSES[base.id].v2Factory;
+const SWAP_AGGREGATOR = CONTRACT_ADDRESSES[base.id].swapAggregator;
 
 // Aggregator V2 ABI - supports native ETH (address(0))
 // Both swapV3 and swapV2 now have deadline parameter for MEV protection
@@ -972,10 +1285,12 @@ const WETH_ABI = [
 ];
 
 export default function SwapInterface() {
-  const { address } = useAccount();
+  const { address, chainId: walletChainId } = useAccount();
   const { writeContract, data: hash, isPending, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess, error: txError } = useWaitForTransactionReceipt({ hash });
   const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
+  const wagmiConfig = useConfig();
 
   // ETH price state - updated from CoinGecko API
   const [ethPriceUsd, setEthPriceUsd] = useState<number>(2950);
@@ -1072,20 +1387,115 @@ export default function SwapInterface() {
   const [transactionStep, setTransactionStep] = useState<'idle' | 'approving' | 'approved' | 'swapping' | 'success'>('idle');
   const [approvalSuccess, setApprovalSuccess] = useState(false);
 
+  // Mode selection: Swap or Bridge
+  const [activeMode, setActiveMode] = useState<'swap' | 'bridge'>('swap');
+  
+  // Swap chain selection (Base or Ethereum) - automatically sync with wallet chain
+  const [swapChainId, setSwapChainId] = useState<number>(base.id);
+  
+  // Auto-sync swap chain with wallet chain when wallet chain changes
+  useEffect(() => {
+    if (walletChainId) {
+      // Only auto-switch if wallet is on Base or Ethereum mainnet
+      if (walletChainId === base.id || walletChainId === mainnet.id) {
+        setSwapChainId(walletChainId);
+      }
+    }
+  }, [walletChainId]);
+  
+  // Get chain-specific token addresses
+  const getChainTokenAddress = (symbol: string, chainId: number): string => {
+    // Ethereum mainnet token addresses
+    if (chainId === mainnet.id) {
+      const ethMainnetTokens: Record<string, string> = {
+        'ETH': '0x0000000000000000000000000000000000000000', // Native ETH
+        'WETH': '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+        'USDC': '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+        'USDT': '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+        'DAI': '0x6B175474E89094C44Da98b954EedeAC495271d0F'
+      };
+      return ethMainnetTokens[symbol] || DEFAULT_TOKENS[symbol]?.address || '';
+    }
+    // Base chain (default)
+    return DEFAULT_TOKENS[symbol]?.address || '';
+  };
+  
+  // Update token addresses when chain changes
+  useEffect(() => {
+    if (swapChainId && (swapChainId === base.id || swapChainId === mainnet.id)) {
+      // Update tokenIn address if it's a known token
+      const newTokenInAddress = getChainTokenAddress(tokenIn.symbol, swapChainId);
+      if (newTokenInAddress) {
+        const wethAddress = CONTRACT_ADDRESSES[swapChainId].weth;
+        const isNative = tokenIn.isNative || tokenIn.symbol === 'ETH';
+        const finalAddress = isNative ? wethAddress : newTokenInAddress;
+        if (finalAddress !== tokenIn.address) {
+          setTokenIn({
+            ...tokenIn,
+            address: finalAddress,
+            sdkToken: new Token(swapChainId, finalAddress, tokenIn.decimals, tokenIn.symbol, tokenIn.name)
+          });
+        }
+      }
+      
+      // Update tokenOut address if it's a known token
+      const newTokenOutAddress = getChainTokenAddress(tokenOut.symbol, swapChainId);
+      if (newTokenOutAddress) {
+        const wethAddress = CONTRACT_ADDRESSES[swapChainId].weth;
+        const isNative = tokenOut.isNative || tokenOut.symbol === 'ETH';
+        const finalAddress = isNative ? wethAddress : newTokenOutAddress;
+        if (finalAddress !== tokenOut.address) {
+          setTokenOut({
+            ...tokenOut,
+            address: finalAddress,
+            sdkToken: new Token(swapChainId, finalAddress, tokenOut.decimals, tokenOut.symbol, tokenOut.name)
+          });
+        }
+      }
+    }
+  }, [swapChainId]);
+  
+  // Bridge state
+  const [bridgeFromChain, setBridgeFromChain] = useState<number>(ChainId.BAS); // Base
+  const [bridgeToChain, setBridgeToChain] = useState<number>(ChainId.ETH); // Ethereum
+  const [bridgeFromToken, setBridgeFromToken] = useState<AppToken>(DEFAULT_TOKENS.ETH); // ETH
+  const [bridgeToToken, setBridgeToToken] = useState<AppToken>(DEFAULT_TOKENS.ETH); // ETH
+  const [bridgeAmount, setBridgeAmount] = useState<string>('');
+  const [bridgeQuote, setBridgeQuote] = useState<Route | null>(null);
+  const [isLoadingBridgeQuote, setIsLoadingBridgeQuote] = useState(false);
+  const [bridgeError, setBridgeError] = useState<string | null>(null);
+  const [isExecutingBridge, setIsExecutingBridge] = useState(false);
+  const [showBridgeTokenSelect, setShowBridgeTokenSelect] = useState<'from' | 'to' | null>(null);
+  const [showChainSelect, setShowChainSelect] = useState<'from' | 'to' | null>(null);
 
-  // Get balance for tokenIn (native ETH or ERC20 token)
+
+  // Get balance for tokenIn (native ETH or ERC20 token) - use swapChainId
   const { data: displayBalance } = useBalance({
     address: address,
     token: tokenIn.isNative ? undefined : (tokenIn.address as `0x${string}`),
-    chainId: base.id
+    chainId: swapChainId
   });
 
-  // Get balance for tokenOut
+  // Get balance for tokenOut - use swapChainId
   const { data: tokenOutBalance } = useBalance({
     address: address,
     token: tokenOut.isNative ? undefined : (tokenOut.address as `0x${string}`),
-    chainId: base.id
+    chainId: swapChainId
   });
+
+  // Get balance for bridgeFromToken (on bridgeFromChain)
+  const bridgeFromChainWagmiId = REVERSE_CHAIN_ID_MAPPING[bridgeFromChain] || base.id;
+  const { data: bridgeFromTokenBalance } = useBalance({
+    address: address,
+    token: bridgeFromToken.isNative ? undefined : (bridgeFromToken.address as `0x${string}`),
+    chainId: bridgeFromChainWagmiId,
+    query: {
+      enabled: !!address
+    }
+  });
+
+  // Get contracts for current swap chain
+  const swapContracts = CONTRACT_ADDRESSES[swapChainId];
 
   // Check allowance - always approve aggregator contract
   // Native ETH doesn't need approval
@@ -1093,18 +1503,47 @@ export default function SwapInterface() {
     address: tokenIn.address as `0x${string}`,
     abi: ERC20_ABI,
     functionName: 'allowance',
-    args: [address, SWAP_AGGREGATOR],
+    args: [address, swapContracts.swapAggregator as `0x${string}`],
+    chainId: swapChainId,
     query: {
-      enabled: !!address && !tokenIn.isNative
+      enabled: !!address && !tokenIn.isNative && !!swapContracts.swapAggregator
     }
   });
 
   // Read protocol fee from aggregator
   const { data: protocolFeeBps } = useReadContract({
-    address: SWAP_AGGREGATOR as `0x${string}`,
+    address: swapContracts.swapAggregator as `0x${string}`,
     abi: AGGREGATOR_ABI,
-    functionName: 'feeBps'
+    functionName: 'feeBps',
+    chainId: swapChainId,
+    query: {
+      enabled: !!swapContracts.swapAggregator
+    }
   });
+
+  // Setup LI.FI SDK providers with wagmi
+  useEffect(() => {
+    if (wagmiConfig) {
+      try {
+        config.setProviders([
+          EVM({
+            getWalletClient: async () => {
+              const client = await getWalletClient(wagmiConfig);
+              return client;
+            },
+            switchChain: async (chainId: number) => {
+              await switchChain(wagmiConfig, { chainId });
+              const client = await getWalletClient(wagmiConfig);
+              return client;
+            },
+          }),
+        ]);
+        console.log('✅ LI.FI SDK providers configured');
+      } catch (error) {
+        console.error('❌ Failed to configure LI.FI SDK providers:', error);
+      }
+    }
+  }, [wagmiConfig]);
 
   // Load custom tokens from localStorage on mount and refresh logos
   useEffect(() => {
@@ -1329,10 +1768,13 @@ export default function SwapInterface() {
   }, [allowance, amountIn, tokenIn]);
 
   // Check if this is a wrap/unwrap operation (ETH↔WETH)
-  const isWrapOperation = (tokenIn.isNative && tokenOut.address.toLowerCase() === WETH_ADDRESS.toLowerCase()) ||
+  // Get WETH address for current chain
+  const currentWethAddress = CONTRACT_ADDRESSES[swapChainId]?.weth || WETH_ADDRESS;
+  
+  const isWrapOperation = (tokenIn.isNative && tokenOut.address.toLowerCase() === currentWethAddress.toLowerCase()) ||
                           (tokenIn.symbol === 'WETH' && tokenOut.isNative);
-  const isWrap = tokenIn.isNative && tokenOut.address.toLowerCase() === WETH_ADDRESS.toLowerCase(); // ETH→WETH
-  const isUnwrap = tokenIn.address.toLowerCase() === WETH_ADDRESS.toLowerCase() && tokenOut.isNative; // WETH→ETH
+  const isWrap = tokenIn.isNative && tokenOut.address.toLowerCase() === currentWethAddress.toLowerCase(); // ETH→WETH
+  const isUnwrap = tokenIn.address.toLowerCase() === currentWethAddress.toLowerCase() && tokenOut.isNative; // WETH→ETH
 
   // Fetch quote from both Uniswap V3 and V2, use best available
   useEffect(() => {
@@ -1369,8 +1811,10 @@ export default function SwapInterface() {
       console.log('   Output token:', tokenOut.symbol);
       
       const amountInWei = parseUnits(amountIn, tokenIn.decimals);
-      const tokenInAddr = tokenIn.isNative ? WETH_ADDRESS : tokenIn.address;
-      const tokenOutAddr = tokenOut.isNative ? WETH_ADDRESS : tokenOut.address;
+      const contracts = CONTRACT_ADDRESSES[swapChainId];
+      const wethAddress = contracts.weth;
+      const tokenInAddr = tokenIn.isNative ? wethAddress : tokenIn.address;
+      const tokenOutAddr = tokenOut.isNative ? wethAddress : tokenOut.address;
       
       let v3Quote: bigint | null = null;
       let v2Quote: bigint | null = null;
@@ -1387,7 +1831,7 @@ export default function SwapInterface() {
       const v3Promises = v3FeeTiers.map(async (feeTier) => {
         try {
           const { result } = await publicClient.simulateContract({
-            address: QUOTER_V2_ADDRESS as `0x${string}`,
+            address: contracts.v3Quoter as `0x${string}`,
             abi: QUOTER_ABI,
             functionName: 'quoteExactInputSingle',
             args: [{
@@ -1484,7 +1928,7 @@ export default function SwapInterface() {
         
         // First check if V2 pair exists (direct route)
         const pairAddress = await publicClient.readContract({
-          address: UNISWAP_V2_FACTORY as `0x${string}`,
+          address: contracts.v2Factory as `0x${string}`,
           abi: V2_FACTORY_ABI,
           functionName: 'getPair',
           args: [tokenInAddr as `0x${string}`, tokenOutAddr as `0x${string}`]
@@ -1493,7 +1937,7 @@ export default function SwapInterface() {
         if (pairAddress && pairAddress !== '0x0000000000000000000000000000000000000000') {
           // Get V2 quote (direct route)
           const amounts = await publicClient.readContract({
-            address: UNISWAP_V2_ROUTER as `0x${string}`,
+            address: contracts.v2Router as `0x${string}`,
             abi: V2_ROUTER_ABI,
             functionName: 'getAmountsOut',
             args: [amountInWei, [tokenInAddr as `0x${string}`, tokenOutAddr as `0x${string}`]]
@@ -1756,20 +2200,230 @@ export default function SwapInterface() {
     resetSwapState();
   };
 
+  // Bridge functions
+  const fetchBridgeQuote = async () => {
+    if (!bridgeAmount || parseFloat(bridgeAmount) <= 0 || !address) {
+      setBridgeQuote(null);
+      return;
+    }
+
+    setIsLoadingBridgeQuote(true);
+    setBridgeError(null);
+
+    try {
+      // Get token addresses for the specific chains using LI.FI SDK's getTokens API
+      let fromTokenAddress = NATIVE_TOKEN_ADDRESS;
+      let toTokenAddress = NATIVE_TOKEN_ADDRESS;
+
+      if (bridgeFromToken.isNative) {
+        fromTokenAddress = NATIVE_TOKEN_ADDRESS;
+      } else {
+        // Fetch tokens for fromChain to get the correct token address
+        const fromChainTokens = await getTokens({ chains: [bridgeFromChain] });
+        const fromChainTokenList = fromChainTokens.tokens[bridgeFromChain] || [];
+        const fromToken = fromChainTokenList.find(
+          (t: any) => t.symbol.toLowerCase() === bridgeFromToken.symbol.toLowerCase()
+        );
+        if (fromToken) {
+          fromTokenAddress = fromToken.address;
+        } else {
+          // Fallback: try to find by address (in case symbol doesn't match)
+          const fromTokenByAddress = fromChainTokenList.find(
+            (t: any) => t.address.toLowerCase() === bridgeFromToken.address.toLowerCase()
+          );
+          if (fromTokenByAddress) {
+            fromTokenAddress = fromTokenByAddress.address;
+          } else {
+            throw new Error(`Token ${bridgeFromToken.symbol} not found on source chain`);
+          }
+        }
+      }
+
+      // Fetch tokens for toChain to get the correct token address
+      const toChainTokens = await getTokens({ chains: [bridgeToChain] });
+      const toChainTokenList = toChainTokens.tokens[bridgeToChain] || [];
+      const toToken = toChainTokenList.find(
+        (t: any) => t.symbol.toLowerCase() === bridgeToToken.symbol.toLowerCase()
+      );
+      if (toToken) {
+        toTokenAddress = toToken.address;
+      } else {
+        // Fallback: try to find by address (in case symbol doesn't match)
+        const toTokenByAddress = toChainTokenList.find(
+          (t: any) => t.address.toLowerCase() === bridgeToToken.address.toLowerCase()
+        );
+        if (toTokenByAddress) {
+          toTokenAddress = toTokenByAddress.address;
+        } else {
+          // If native token selected, try to find wrapped version (e.g., WETH for ETH)
+          if (bridgeToToken.isNative) {
+            const wrappedSymbol = 'W' + bridgeToToken.symbol;
+            const wrappedToken = toChainTokenList.find(
+              (t: any) => t.symbol.toLowerCase() === wrappedSymbol.toLowerCase()
+            );
+            if (wrappedToken) {
+              toTokenAddress = wrappedToken.address;
+            } else {
+              throw new Error(`Token ${bridgeToToken.symbol} not found on destination chain`);
+            }
+          } else {
+            throw new Error(`Token ${bridgeToToken.symbol} not found on destination chain`);
+          }
+        }
+      }
+
+      // Check if same chain and same token (bridge not needed)
+      if (bridgeFromChain === bridgeToChain && fromTokenAddress.toLowerCase() === toTokenAddress.toLowerCase()) {
+        setBridgeError('Cannot bridge the same token on the same chain. Please select different tokens or chains.');
+        setBridgeQuote(null);
+        setIsLoadingBridgeQuote(false);
+        return;
+      }
+
+      const amountInWei = parseUnits(bridgeAmount, bridgeFromToken.decimals);
+      
+      console.log('🌉 Fetching bridge routes:', {
+        fromChain: bridgeFromChain,
+        toChain: bridgeToChain,
+        fromToken: fromTokenAddress,
+        toToken: toTokenAddress,
+        fromAmount: amountInWei.toString(),
+        fromAmountFormatted: bridgeAmount,
+        fromTokenSymbol: bridgeFromToken.symbol,
+        toTokenSymbol: bridgeToToken.symbol,
+      });
+      
+      const routesResult = await getRoutes({
+        fromChainId: bridgeFromChain,
+        toChainId: bridgeToChain,
+        fromTokenAddress: fromTokenAddress,
+        toTokenAddress: toTokenAddress,
+        fromAmount: amountInWei.toString(),
+        fromAddress: address,
+        options: {
+          slippage: 0.03, // 3% slippage
+          allowSwitchChain: true,
+        },
+      });
+
+      if (!routesResult.routes || routesResult.routes.length === 0) {
+        throw new Error('No routes found for this bridge');
+      }
+
+      const route = routesResult.routes[0];
+      console.log('✅ Bridge route received:', route);
+      setBridgeQuote(route);
+      setBridgeError(null);
+    } catch (err: any) {
+      console.error('❌ Error fetching bridge quote:', err);
+      const errorMessage = err?.message || err?.toString() || 'Failed to fetch bridge quote';
+      setBridgeError(errorMessage);
+      setBridgeQuote(null);
+    } finally {
+      setIsLoadingBridgeQuote(false);
+    }
+  };
+
+  const handleBridge = async () => {
+    if (!bridgeQuote || !walletClient || !address) {
+      return;
+    }
+
+    setIsExecutingBridge(true);
+    setBridgeError(null);
+
+    try {
+      await executeRoute(bridgeQuote, {
+        updateRouteHook(updatedRoute) {
+          console.log('Bridge status update:', updatedRoute);
+          // Update bridge quote state with latest route status
+          setBridgeQuote(updatedRoute);
+        },
+      });
+    } catch (err: any) {
+      console.error('Error executing bridge:', err);
+      
+      // Extract user-friendly error message
+      let errorMessage = 'Bridge execution failed';
+      let shouldRefreshQuote = false;
+      
+      if (err?.message) {
+        // Check if it's a slippage error (quote expired)
+        if (err.message.includes('slippage') || err.message.includes('SlippageError') || err.message.includes('Please request a new route')) {
+          errorMessage = 'Quote expired. Please wait for a fresh quote and try again.';
+          shouldRefreshQuote = true;
+        } else if (err.message.includes('balance') && err.message.includes('too low')) {
+          errorMessage = 'Insufficient balance. Please check your wallet balance.';
+        } else if (err.message.includes('BalanceError')) {
+          errorMessage = 'Insufficient balance. Please check your wallet balance.';
+        } else {
+          // Use the error message as-is for other errors
+          errorMessage = err.message;
+        }
+      } else if (err?.toString) {
+        const errStr = err.toString();
+        if (errStr.includes('slippage') || errStr.includes('SlippageError') || errStr.includes('Please request a new route')) {
+          errorMessage = 'Quote expired. Please wait for a fresh quote and try again.';
+          shouldRefreshQuote = true;
+        } else if (errStr.includes('balance') && errStr.includes('too low')) {
+          errorMessage = 'Insufficient balance. Please check your wallet balance.';
+        } else {
+          errorMessage = errStr;
+        }
+      }
+      
+      setBridgeError(errorMessage);
+      
+      // If quote expired, refresh it automatically
+      if (shouldRefreshQuote) {
+        setBridgeQuote(null);
+        // Fetch new quote after a short delay
+        setTimeout(() => {
+          fetchBridgeQuote();
+        }, 1000);
+      }
+    } finally {
+      setIsExecutingBridge(false);
+    }
+  };
+
+  // Fetch bridge quote when parameters change
+  useEffect(() => {
+    if (activeMode === 'bridge') {
+      const timer = setTimeout(() => {
+        fetchBridgeQuote();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [bridgeFromChain, bridgeToChain, bridgeFromToken.address, bridgeToToken.address, bridgeAmount, address, activeMode]);
+
   // Handle token selection with proper state reset
   const handleTokenSelect = (token: AppToken, side: 'in' | 'out') => {
+    // Get chain-specific token address
+    const chainTokenAddress = getChainTokenAddress(token.symbol, swapChainId);
+    const wethAddress = CONTRACT_ADDRESSES[swapChainId]?.weth;
+    const isNative = token.isNative || token.symbol === 'ETH';
+    const finalAddress = isNative ? wethAddress : (chainTokenAddress || token.address);
+    
+    // Create updated token with chain-specific address
+    const updatedToken: AppToken = {
+      ...token,
+      address: finalAddress,
+      sdkToken: new Token(swapChainId, finalAddress, token.decimals, token.symbol, token.name)
+    };
+    
     if (side === 'in') {
       if (token.symbol === tokenOut.symbol) {
         switchTokens();
       } else {
-        setTokenIn(token);
+        setTokenIn(updatedToken);
         resetSwapState();
       }
     } else {
       if (token.symbol === tokenIn.symbol) {
         switchTokens();
       } else {
-        setTokenOut(token);
+        setTokenOut(updatedToken);
         resetSwapState();
       }
     }
@@ -1785,15 +2439,16 @@ export default function SwapInterface() {
 
     // MAX APPROVE: One-time unlimited approval like Uniswap
     // User only needs to approve once per token, never again
-    console.log('🔓 Step 1: Max Approving Aggregator:', SWAP_AGGREGATOR);
+    const swapContracts = CONTRACT_ADDRESSES[swapChainId];
+    console.log('🔓 Step 1: Max Approving Aggregator:', swapContracts.swapAggregator);
 
     try {
     writeContract({
         address: tokenIn.address as `0x${string}`,
       abi: ERC20_ABI,
       functionName: 'approve',
-        args: [SWAP_AGGREGATOR, maxUint256], // Unlimited approval
-      chainId: base.id
+        args: [swapContracts.swapAggregator as `0x${string}`, maxUint256], // Unlimited approval
+      chainId: swapChainId
     });
     } catch (error: any) {
       setTransactionStep('idle');
@@ -1886,24 +2541,32 @@ export default function SwapInterface() {
       console.log('   Rate: 1:1 (no fees)');
       
       try {
+        // Get WETH address for current chain
+        const wethAddress = CONTRACT_ADDRESSES[swapChainId]?.weth;
+        if (!wethAddress) {
+          setErrorMessage('WETH contract not found for this chain');
+          setTransactionStep('idle');
+          return;
+        }
+        
         if (isWrap) {
           // ETH → WETH: Call deposit() with ETH value
     writeContract({
-            address: WETH_ADDRESS as `0x${string}`,
+            address: wethAddress as `0x${string}`,
             abi: WETH_ABI,
             functionName: 'deposit',
             args: [],
             value: amountInWei,
-            chainId: base.id
+            chainId: swapChainId
           });
         } else {
           // WETH → ETH: Call withdraw() with amount
           writeContract({
-            address: WETH_ADDRESS as `0x${string}`,
+            address: wethAddress as `0x${string}`,
             abi: WETH_ABI,
             functionName: 'withdraw',
             args: [amountInWei],
-            chainId: base.id
+            chainId: swapChainId
           });
         }
         console.log('✅ Wrap/Unwrap request sent to wallet!');
@@ -2025,8 +2688,9 @@ export default function SwapInterface() {
       const tokenInAddr = inputIsNativeETH ? ZERO_ADDRESS : tokenIn.address;
       const tokenOutAddr = outputIsNativeETH ? ZERO_ADDRESS : tokenOut.address;
 
+      const swapContracts = CONTRACT_ADDRESSES[swapChainId];
       console.log('📋 Aggregator V2 Swap Parameters:');
-      console.log('   Aggregator Contract:', SWAP_AGGREGATOR);
+      console.log('   Aggregator Contract:', swapContracts.swapAggregator);
       console.log('   Protocol:', selectedProtocol.toUpperCase());
       console.log('   User Address:', address);
       console.log('   Token In:', tokenIn.symbol, inputIsNativeETH ? '(Native ETH → 0x0)' : `→ ${tokenInAddr}`);
@@ -2045,13 +2709,20 @@ export default function SwapInterface() {
       // ALL SWAPS GO THROUGH AGGREGATOR V2 (Including Native ETH!)
       // ═══════════════════════════════════════════════════════════════
       
+      // Check if aggregator is available for this chain
+      if (!swapContracts.swapAggregator) {
+        setErrorMessage('Swap aggregator not available on this chain. Please use Base or Ethereum network.');
+        setTransactionStep('idle');
+        return;
+      }
+      
       let txConfig: any;
 
       if (selectedProtocol === 'v2') {
         // V2 Swap via Aggregator
         console.log('🔶 Using Aggregator swapV2');
         txConfig = {
-          address: SWAP_AGGREGATOR as `0x${string}`,
+          address: swapContracts.swapAggregator as `0x${string}`,
       abi: AGGREGATOR_ABI,
           functionName: 'swapV2',
       args: [
@@ -2061,14 +2732,14 @@ export default function SwapInterface() {
             finalMinAmountOut,   // amountOutMinimum
             deadline        // deadline
           ],
-          chainId: base.id,
-          gas: BigInt(450000)
+          chainId: swapChainId
+          // No gas limit - let wagmi estimate automatically
         };
       } else {
         // V3 Swap via Aggregator (now has deadline for MEV protection)
         console.log('🔷 Using Aggregator swapV3');
         txConfig = {
-          address: SWAP_AGGREGATOR as `0x${string}`,
+          address: swapContracts.swapAggregator as `0x${string}`,
           abi: AGGREGATOR_ABI,
           functionName: 'swapV3',
           args: [
@@ -2079,8 +2750,8 @@ export default function SwapInterface() {
             finalMinAmountOut,     // amountOutMinimum
             deadline          // deadline (20 minutes)
           ],
-          chainId: base.id,
-          gas: BigInt(450000)
+          chainId: swapChainId
+          // No gas limit - let wagmi estimate automatically
         };
       }
 
@@ -2102,8 +2773,8 @@ export default function SwapInterface() {
         functionName: txConfig.functionName,
         args: txConfig.args,
         value: txConfig.value,
-        gas: txConfig.gas,
         chainId: txConfig.chainId
+        // No gas limit - wagmi will estimate automatically
       });
       
       console.log('✅ Aggregator swap request sent to wallet!');
@@ -2384,9 +3055,24 @@ export default function SwapInterface() {
         </div>
           {!isMobile && (
             <nav style={getStyle(styles.nav, mobileOverrides.nav)}>
-              <a href="#" style={getStyle(styles.navLinkActive, mobileOverrides.navLinkActive)}>Swap</a>
               <button 
-                onClick={() => setShowStatistics(true)}
+                onClick={() => setActiveMode('swap')}
+                style={activeMode === 'swap' ? getStyle(styles.navLinkActive, mobileOverrides.navLinkActive) : getStyle(styles.navLink, mobileOverrides.navLink)}
+              >
+                Swap
+              </button>
+              <button
+                onClick={() => setActiveMode('bridge')}
+                style={activeMode === 'bridge' ? getStyle(styles.navLinkActive, mobileOverrides.navLinkActive) : getStyle(styles.navLink, mobileOverrides.navLink)}
+              >
+                Cross-Chain
+              </button>
+              <button 
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowStatistics(true);
+                }}
                 style={getStyle(styles.navLink, mobileOverrides.navLink)}
               >
                 Statistics
@@ -2401,7 +3087,18 @@ export default function SwapInterface() {
         </div>
         {isMobile && (
           <nav style={getStyle(styles.nav, mobileOverrides.nav)}>
-            <a href="#" style={getStyle(styles.navLinkActive, mobileOverrides.navLinkActive)}>Swap</a>
+            <button
+              onClick={() => setActiveMode('swap')}
+              style={activeMode === 'swap' ? getStyle(styles.navLinkActive, mobileOverrides.navLinkActive) : getStyle(styles.navLink, mobileOverrides.navLink)}
+            >
+              Swap
+            </button>
+            <button
+              onClick={() => setActiveMode('bridge')}
+              style={activeMode === 'bridge' ? getStyle(styles.navLinkActive, mobileOverrides.navLinkActive) : getStyle(styles.navLink, mobileOverrides.navLink)}
+            >
+              Bridge
+            </button>
             <button 
               onClick={() => setShowStatistics(true)}
               style={getStyle(styles.navLink, mobileOverrides.navLink)}
@@ -2429,6 +3126,8 @@ export default function SwapInterface() {
       <div style={getStyle(styles.mainContent, mobileOverrides.mainContent)}>
         <div style={getStyle(styles.card, mobileOverrides.card)}>
 
+        {activeMode === 'swap' ? (
+          <>
         {/* Token In */}
         <div style={getStyle(styles.tokenSection, mobileOverrides.tokenSection)}>
           <div style={styles.sectionHeader}>
@@ -3046,7 +3745,10 @@ export default function SwapInterface() {
                 <div style={styles.popularTokens}>
                   <div style={styles.popularLabel}>Popular</div>
                   <div style={styles.popularList}>
-                    {['ETH', 'USDC', 'USDT', 'AERO'].map(symbol => {
+                    {(swapChainId === mainnet.id 
+                      ? ['ETH', 'USDC', 'USDT'] // Ethereum: only ETH, USDC, USDT
+                      : ['ETH', 'USDC', 'USDT', 'AERO'] // Base: include AERO
+                    ).map(symbol => {
                       const token = DEFAULT_TOKENS[symbol];
                       if (!token) return null;
                       return (
@@ -3068,7 +3770,29 @@ export default function SwapInterface() {
 
               {/* Token List - Sorted by balance (tokens with balance first) */}
               <TokenListSortedByBalance
-                tokens={tokenSearchQuery ? searchTokens(tokenSearchQuery) : Object.values(DEFAULT_TOKENS).concat(Object.values(customTokens))}
+                tokens={(() => {
+                  // Base-specific tokens that should be hidden on Ethereum
+                  const BASE_ONLY_TOKENS = ['AERO', 'BRETT', 'DEGEN', 'USDbC'];
+                  
+                  if (tokenSearchQuery) {
+                    // When searching, filter by chain
+                    const searchResults = searchTokens(tokenSearchQuery);
+                    if (swapChainId === mainnet.id) {
+                      return searchResults.filter(token => !BASE_ONLY_TOKENS.includes(token.symbol));
+                    }
+                    return searchResults;
+                  }
+                  
+                  // Default token list - filter by chain
+                  const allTokens = Object.values(DEFAULT_TOKENS).concat(Object.values(customTokens));
+                  if (swapChainId === mainnet.id) {
+                    // Ethereum: only show ETH, WETH, USDC, USDT, DAI
+                    const ETHEREUM_TOKENS = ['ETH', 'WETH', 'USDC', 'USDT', 'DAI'];
+                    return allTokens.filter(token => ETHEREUM_TOKENS.includes(token.symbol));
+                  }
+                  // Base: show all tokens
+                  return allTokens;
+                })()}
                 tokenIn={tokenIn}
                 tokenOut={tokenOut}
                 showTokenSelect={showTokenSelect}
@@ -3080,16 +3804,403 @@ export default function SwapInterface() {
                 customTokenError={customTokenError}
                 customTokens={customTokens}
                 onRemoveCustomToken={(token) => {
-                  removeCustomToken(token.symbol);
-                  setCustomTokens(prev => {
-                    const updated = { ...prev };
-                    delete updated[token.symbol];
-                    return updated;
-                  });
+                        removeCustomToken(token.symbol);
+                        setCustomTokens(prev => {
+                          const updated = { ...prev };
+                          delete updated[token.symbol];
+                          return updated;
+                        });
                 }}
               />
+                  </div>
+          </div>
+        )}
+          </>
+        ) : (
+          <>
+            {/* Bridge From */}
+            <div style={getStyle(styles.tokenSection, mobileOverrides.tokenSection)}>
+              <div style={styles.sectionHeader}>
+                <div style={getStyle(styles.tokenLabel, mobileOverrides.tokenLabel)}>From</div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button
+                    onClick={() => setShowChainSelect('from')}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', ...getStyle(styles.tokenButton, mobileOverrides.tokenButton), fontSize: '12px', padding: '4px 8px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                  >
+                    <ChainLogo lifiChainId={bridgeFromChain} size={16} />
+                    <span style={{ flex: 1, textAlign: 'left' }}>
+                      {SUPPORTED_CHAINS.find(c => c.lifiChainId === bridgeFromChain)?.name}
+                    </span>
+                    <span style={styles.chevron}>▼</span>
+                  </button>
+                  <button 
+                    onClick={() => setShowBridgeTokenSelect('from')}
+                    style={getStyle(styles.tokenButton, mobileOverrides.tokenButton)}
+                  >
+                    {bridgeFromToken.logoURI && <img src={bridgeFromToken.logoURI} alt={bridgeFromToken.symbol} style={getStyle(styles.tokenButtonLogo, mobileOverrides.tokenButtonLogo)} />}
+                    {bridgeFromToken.symbol}
+                    <span style={styles.chevron}>▼</span>
+                  </button>
+                </div>
+              </div>
+              <input
+                type="number"
+                placeholder="0"
+                value={bridgeAmount}
+                onChange={(e) => setBridgeAmount(e.target.value)}
+                style={getStyle(styles.amountInput, mobileOverrides.amountInput)}
+              />
+              {/* Percentage buttons */}
+              <div style={getStyle(styles.percentageButtons, mobileOverrides.percentageButtons)}>
+                {[25, 50, 75, 100].map((percent) => (
+                  <button
+                    key={percent}
+                    onClick={() => {
+                      if (bridgeFromTokenBalance) {
+                        const maxAmount = parseFloat(formatUnits(bridgeFromTokenBalance.value, bridgeFromTokenBalance.decimals));
+                        const calculatedAmount = maxAmount * percent / 100;
+                        
+                        const decimals = bridgeFromTokenBalance.decimals || 18;
+                        const precision = Math.max(decimals, 20);
+                        let newAmount: string;
+                        
+                        if (calculatedAmount === 0) {
+                          newAmount = '0';
+                        } else if (calculatedAmount < 0.0001) {
+                          newAmount = calculatedAmount.toFixed(precision);
+                          newAmount = newAmount.replace(/\.?0+$/, '');
+                        } else {
+                          newAmount = formatNumber(calculatedAmount);
+                        }
+                        
+                        setBridgeAmount(newAmount);
+                      }
+                    }}
+                    style={getStyle(styles.percentButton, mobileOverrides.percentButton)}
+                  >
+                    {percent === 100 ? 'Max' : `${percent}%`}
+                  </button>
+                ))}
+              </div>
+              <div style={styles.bottomRow}>
+                <div style={getStyle(styles.usdValue, mobileOverrides.usdValue)}>
+                  {calculateUsdValue(bridgeAmount, bridgeFromToken, undefined, undefined, ethPriceUsd)}
+                </div>
+                <div style={getStyle(styles.balanceText, mobileOverrides.balanceText)}>
+                  {bridgeFromTokenBalance 
+                    ? `Balance: ${formatNumber(parseFloat(formatUnits(bridgeFromTokenBalance.value, bridgeFromTokenBalance.decimals)))} ${bridgeFromToken.symbol}`
+                    : `- ${bridgeFromToken.symbol}`
+                  }
+                </div>
+              </div>
+            </div>
+
+            {/* Switch Button */}
+            <div style={styles.switchContainer}>
+              <button 
+                onClick={() => {
+                  const tempChain = bridgeFromChain;
+                  const tempToken = bridgeFromToken;
+                  setBridgeFromChain(bridgeToChain);
+                  setBridgeFromToken(bridgeToToken);
+                  setBridgeToChain(tempChain);
+                  setBridgeToToken(tempToken);
+                }} 
+                style={styles.switchButton}
+              >
+                ↓
+              </button>
+            </div>
+
+            {/* Bridge To */}
+            <div style={getStyle(styles.tokenSection, mobileOverrides.tokenSection)}>
+              <div style={styles.sectionHeader}>
+                <div style={getStyle(styles.tokenLabel, mobileOverrides.tokenLabel)}>To</div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button
+                    onClick={() => setShowChainSelect('to')}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', ...getStyle(styles.tokenButton, mobileOverrides.tokenButton), fontSize: '12px', padding: '4px 8px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                  >
+                    <ChainLogo lifiChainId={bridgeToChain} size={16} />
+                    <span style={{ flex: 1, textAlign: 'left' }}>
+                      {SUPPORTED_CHAINS.find(c => c.lifiChainId === bridgeToChain)?.name}
+                    </span>
+                    <span style={styles.chevron}>▼</span>
+                  </button>
+                  <button 
+                    onClick={() => setShowBridgeTokenSelect('to')}
+                    style={getStyle(styles.tokenButton, mobileOverrides.tokenButton)}
+                  >
+                    {bridgeToToken.logoURI && <img src={bridgeToToken.logoURI} alt={bridgeToToken.symbol} style={getStyle(styles.tokenButtonLogo, mobileOverrides.tokenButtonLogo)} />}
+                    {bridgeToToken.symbol}
+                    <span style={styles.chevron}>▼</span>
+                  </button>
+                </div>
+              </div>
+              <div style={styles.amountRow}>
+                {isLoadingBridgeQuote ? (
+                  <div style={styles.loadingSpinner}></div>
+                ) : null}
+                <input
+                  type="text"
+                  value={bridgeQuote && bridgeQuote.toAmount && bridgeQuote.toToken ? formatNumber(parseFloat(formatUnits(BigInt(bridgeQuote.toAmount), bridgeQuote.toToken.decimals))) : '0'}
+                  readOnly
+                  placeholder="0"
+                  style={{
+                    ...getStyle(styles.amountInput, mobileOverrides.amountInput),
+                    paddingLeft: isLoadingBridgeQuote ? (isMobile ? '30px' : '40px') : '0'
+                  }}
+                />
+              </div>
+              <div style={styles.bottomRow}>
+                <div style={getStyle(styles.usdValue, mobileOverrides.usdValue)}>
+                  {bridgeQuote && bridgeQuote.toAmount && bridgeQuote.toToken ? calculateUsdValue(formatNumber(parseFloat(formatUnits(BigInt(bridgeQuote.toAmount), bridgeQuote.toToken.decimals))), bridgeToToken, undefined, undefined, ethPriceUsd) : '-'}
+                </div>
+              </div>
+            </div>
+
+            {/* Bridge Button */}
+            <button
+              onClick={handleBridge}
+              disabled={!bridgeQuote || isExecutingBridge || isLoadingBridgeQuote || !address}
+              style={{
+                ...getStyle(styles.swapButton, mobileOverrides.swapButton),
+                opacity: (!bridgeQuote || isExecutingBridge || isLoadingBridgeQuote || !address) ? 0.5 : 1,
+                cursor: (!bridgeQuote || isExecutingBridge || isLoadingBridgeQuote || !address) ? 'not-allowed' : 'pointer'
+              }}
+            >
+              {isExecutingBridge ? 'Bridging...' : isLoadingBridgeQuote ? 'Loading...' : 'Bridge'}
+            </button>
+
+            {/* Bridge Error */}
+            {bridgeError && (
+              <div style={styles.errorMessage}>
+                ⚠️ {bridgeError}
+                  </div>
+                )}
+
+            {/* Bridge Info */}
+            {bridgeQuote && (
+              <div style={styles.infoBox}>
+                <div style={getStyle(styles.infoRow, mobileOverrides.infoRow)}>
+                  <span>You will receive:</span>
+                  <span>{bridgeQuote.toAmount && bridgeQuote.toToken ? formatNumber(parseFloat(formatUnits(BigInt(bridgeQuote.toAmount), bridgeQuote.toToken.decimals))) : '0'} {bridgeQuote.toToken?.symbol || ''}</span>
+                </div>
+                <div style={getStyle(styles.infoRow, mobileOverrides.infoRow)}>
+                  <span>Estimated time:</span>
+                  <span>{bridgeQuote.steps && bridgeQuote.steps.length > 0 && bridgeQuote.steps[0].estimate?.executionDuration ? Math.round(bridgeQuote.steps[0].estimate.executionDuration / 60) : '-'} minutes</span>
+                </div>
+                  </div>
+                )}
+
+            {/* Chain Select Modal */}
+            {showChainSelect && (
+              <div style={styles.modal} onClick={() => setShowChainSelect(null)}>
+                <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+                  <div style={styles.modalHeader}>
+                    <h3 style={styles.modalTitle}>Select Network</h3>
+                    <button 
+                      onClick={() => setShowChainSelect(null)} 
+                      style={styles.closeButton}
+                    >×</button>
+                  </div>
+                  <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+                    {SUPPORTED_CHAINS.map(chain => {
+                      const isSelected = showChainSelect === 'from' 
+                        ? chain.lifiChainId === bridgeFromChain 
+                        : chain.lifiChainId === bridgeToChain;
+                      return (
+                        <button
+                          key={chain.lifiChainId}
+                          onClick={() => {
+                            if (showChainSelect === 'from') {
+                              setBridgeFromChain(chain.lifiChainId);
+                            } else {
+                              setBridgeToChain(chain.lifiChainId);
+                            }
+                            setShowChainSelect(null);
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            width: '100%',
+                            padding: '12px',
+                            background: isSelected ? 'rgba(0, 212, 255, 0.1)' : 'transparent',
+                            border: 'none',
+                            color: '#ffffff',
+                            fontSize: '15px',
+                            fontWeight: isSelected ? '600' : '400',
+                            cursor: 'pointer',
+                            borderRadius: '10px',
+                            transition: 'background-color 0.15s',
+                            textAlign: 'left'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected) {
+                              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected) {
+                              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
+                            }
+                          }}
+                        >
+                          <ChainLogo lifiChainId={chain.lifiChainId} size={24} />
+                          <span style={{ flex: 1 }}>{chain.name}</span>
+                          {isSelected && (
+                            <span style={{ color: '#00d4ff', fontSize: '18px' }}>✓</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Bridge Token Select Modal */}
+            {showBridgeTokenSelect && (
+              <div style={styles.modal} onClick={() => setShowBridgeTokenSelect(null)}>
+                <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+                  <div style={styles.modalHeader}>
+                    <h3 style={styles.modalTitle}>Select Token</h3>
+                    <button 
+                      onClick={() => setShowBridgeTokenSelect(null)} 
+                      style={styles.closeButton}
+                    >×</button>
+                  </div>
+                  
+                  {/* Popular Tokens */}
+                  <div style={styles.popularTokens}>
+                    <div style={styles.popularLabel}>Popular</div>
+                    <div style={styles.popularList}>
+                      {(() => {
+                        // Create bridge native tokens (for popular tokens not in DEFAULT_TOKENS)
+                        const bridgeNativeTokens: Record<string, AppToken> = {
+                          MON: {
+                            address: NATIVE_TOKEN_ADDRESS,
+                            symbol: 'MON',
+                            name: 'Monad',
+                            decimals: 18,
+                            logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png', // Fallback
+                            isNative: true,
+                            sdkToken: new Token(BASE_CHAIN_ID, NATIVE_TOKEN_ADDRESS, 18, 'MON', 'Monad')
+                          },
+                          AVAX: {
+                            address: NATIVE_TOKEN_ADDRESS,
+                            symbol: 'AVAX',
+                            name: 'Avalanche',
+                            decimals: 18,
+                            logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/avalanchec/info/logo.png',
+                            isNative: true,
+                            sdkToken: new Token(BASE_CHAIN_ID, NATIVE_TOKEN_ADDRESS, 18, 'AVAX', 'Avalanche')
+                          },
+                          BNB: {
+                            address: NATIVE_TOKEN_ADDRESS,
+                            symbol: 'BNB',
+                            name: 'BNB Chain',
+                            decimals: 18,
+                            logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png',
+                            isNative: true,
+                            sdkToken: new Token(BASE_CHAIN_ID, NATIVE_TOKEN_ADDRESS, 18, 'BNB', 'BNB Chain')
+                          },
+                          ZK: {
+                            address: NATIVE_TOKEN_ADDRESS,
+                            symbol: 'ZK',
+                            name: 'zkSync',
+                            decimals: 18,
+                            logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/zksync/info/logo.png',
+                            isNative: true,
+                            sdkToken: new Token(BASE_CHAIN_ID, NATIVE_TOKEN_ADDRESS, 18, 'ZK', 'zkSync')
+                          },
+                          POL: {
+                            address: NATIVE_TOKEN_ADDRESS,
+                            symbol: 'POL',
+                            name: 'Polygon',
+                            decimals: 18,
+                            logoURI: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png',
+                            isNative: true,
+                            sdkToken: new Token(BASE_CHAIN_ID, NATIVE_TOKEN_ADDRESS, 18, 'POL', 'Polygon')
+                          }
+                        };
+
+                        const popularTokenSymbols = ['ETH', 'USDC', 'USDT', 'AERO', 'MON', 'AVAX', 'BNB', 'ZK', 'POL', 'ZORA'];
+                        
+                        // Map token symbols to their native chain IDs (for native tokens)
+                        const tokenChainMap: Record<string, number> = {
+                          'MON': ChainId.MON,
+                          'AVAX': ChainId.AVA,
+                          'BNB': ChainId.BSC,
+                          'ZK': ChainId.ERA,
+                          'POL': ChainId.POL,
+                          'ZORA': ChainId.BAS, // ZORA token is on Base network
+                        };
+                        
+                        // Get current chain ID based on which side is selected
+                        const currentChainId = showBridgeTokenSelect === 'from' ? bridgeFromChain : bridgeToChain;
+                        
+                        return popularTokenSymbols.map(symbol => {
+                          const token = DEFAULT_TOKENS[symbol] || bridgeNativeTokens[symbol];
+                          if (!token) return null;
+                          
+                          // For native tokens, use their native chain ID; for others, use current chain
+                          const tokenChainId = tokenChainMap[symbol] || currentChainId;
+
+                    return (
+                            <button
+                              key={symbol}
+                              onClick={() => {
+                                if (showBridgeTokenSelect === 'from') {
+                                  setBridgeFromToken(token);
+                                } else {
+                                  setBridgeToToken(token);
+                                }
+                                setShowBridgeTokenSelect(null);
+                              }}
+                              style={getStyle(styles.popularToken, mobileOverrides.popularToken)}
+                            >
+                              <BridgeTokenLogo 
+                        token={token}
+                                chainId={tokenChainId} 
+                                size={24} 
+                                style={getStyle(styles.tokenLogo, mobileOverrides.tokenLogo)} 
+                              />
+                              {token.symbol}
+                            </button>
+                          );
+                        });
+                      })()}
+                  </div>
+                  </div>
+
+                  {/* All Tokens */}
+                  <TokenListSortedByBalance
+                    tokens={Object.values(DEFAULT_TOKENS).concat(Object.values(customTokens))}
+                    tokenIn={showBridgeTokenSelect === 'from' ? bridgeFromToken : bridgeToToken}
+                    tokenOut={showBridgeTokenSelect === 'from' ? bridgeToToken : bridgeFromToken}
+                    showTokenSelect={showBridgeTokenSelect === 'from' ? 'in' : 'out'}
+                    onTokenSelect={(token) => {
+                      if (showBridgeTokenSelect === 'from') {
+                        setBridgeFromToken(token);
+                      } else {
+                        setBridgeToToken(token);
+                      }
+                      setShowBridgeTokenSelect(null);
+                    }}
+                    ethPrice={ethPriceUsd}
+                    address={address}
+                    tokenSearchQuery=""
+                    isLoadingCustomToken={false}
+                    customTokenError={null}
+                    customTokens={customTokens}
+                    onRemoveCustomToken={() => {}}
+                  />
             </div>
           </div>
+            )}
+          </>
         )}
         </div>
       </div>
@@ -3168,7 +4279,10 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '16px',
     fontWeight: '500',
     borderRadius: '12px',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    border: 'none',
+    outline: 'none',
+    fontFamily: 'inherit'
   },
   headerRight: {
     display: 'flex',

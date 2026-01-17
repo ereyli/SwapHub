@@ -22,6 +22,7 @@
     "vite": "^5.0.8"
   },
   "dependencies": {
+    "@lifi/sdk": "^3.15.1",
     "@openzeppelin/contracts": "^5.0.1",
     "@rainbow-me/rainbowkit": "^2.2.10",
     "@tanstack/react-query": "^5.90.15",
